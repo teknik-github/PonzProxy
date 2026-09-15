@@ -345,3 +345,11 @@ export interface AccessLogFilters {
   limit?: number
   offset?: number
 }
+
+/* ---------------------------------------------------------------- users -- */
+
+export interface UserInput {
+  username: string
+  password: string
+  role: Role
+}

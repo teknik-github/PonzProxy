@@ -74,6 +74,22 @@ func (r *userRepo) TouchLogin(ctx context.Context, id int64, at time.Time) error
 	return translateErr(err)
 }
 
+func (r *userRepo) UpdateRole(ctx context.Context, id int64, role domain.Role) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE users SET role = ? WHERE id = ?`, string(role), id)
+	if err != nil {
+		return translateErr(err)
+	}
+	return requireOneRow(res)
+}
+
+func (r *userRepo) CountAdmins(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE role = ?`, string(domain.RoleAdmin)).Scan(&n)
+	return n, translateErr(err)
+}
+
 func (r *userRepo) Delete(ctx context.Context, id int64) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
 	if err != nil {

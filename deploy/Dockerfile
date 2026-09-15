@@ -1,25 +1,29 @@
 # The dashboard and the binary build in separate stages, so a change to one
 # does not invalidate the other's layer cache.
 
-FROM node:22-alpine AS ui
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.27-alpine AS build
+# BUILDPLATFORM keeps this stage on the machine's own architecture and lets Go
+# cross-compile instead. Emulating the build for another architecture would be
+# an order of magnitude slower for no benefit: the output is a static binary
+# with no cgo.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
-# Dependencies are fetched before the source is copied, so editing code does
-# not re-download the module cache.
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=ui /src/internal/webui/dist ./internal/webui/dist
+
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
-# CGO is off because the SQLite driver is pure Go, so this produces a static
-# binary with no runtime library dependencies.
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" \
         -o /ponzproxy ./cmd/ponzproxy
 
@@ -41,3 +45,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
     CMD wget -qO- http://127.0.0.1:8080/api/health >/dev/null || exit 1
 
 ENTRYPOINT ["/usr/local/bin/ponzproxy"]
+
+LABEL org.opencontainers.image.source="https://github.com/teknik-github/PonzProxy" \
+      org.opencontainers.image.description="Load balancer and reverse proxy with a live web console." \
+      org.opencontainers.image.licenses="MIT"

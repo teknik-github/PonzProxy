@@ -14,6 +14,7 @@ import (
 
 	"github.com/ponzproxy/ponzproxy/internal/certmgr/dnsprovider"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
+	"github.com/ponzproxy/ponzproxy/internal/platform/logging"
 )
 
 // ErrNoCertificate is returned for a handshake that matches nothing. The TLS
@@ -186,14 +187,17 @@ func (m *Manager) Run(ctx context.Context) {
 func (m *Manager) renewDue(ctx context.Context) {
 	due, err := m.repo.DueForRenewal(ctx, time.Now())
 	if err != nil {
-		m.logger.Error("check certificates for renewal", "error", err)
+		// A cancelled context here is the process stopping, not a fault.
+		if !logging.IsShutdown(err) {
+			m.logger.Error("check certificates for renewal", "error", err)
+		}
 		return
 	}
 	for _, cert := range due {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := m.Issue(ctx, cert.ID); err != nil {
+		if err := m.Issue(ctx, cert.ID); err != nil && !logging.IsShutdown(err) {
 			// One failure must not stop the others from being attempted;
 			// it is already recorded on the certificate itself.
 			m.logger.Error("renew certificate", "name", cert.Name, "error", err)

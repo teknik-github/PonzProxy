@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ponzproxy/ponzproxy/internal/domain"
+	"github.com/ponzproxy/ponzproxy/internal/platform/logging"
 )
 
 // Run drives the collector's background duties: sampling traffic rates for the
@@ -79,7 +80,7 @@ func (c *Collector) flush(ctx context.Context) {
 	if len(samples) == 0 {
 		return
 	}
-	if err := c.repo.WriteSamples(ctx, samples); err != nil {
+	if err := c.repo.WriteSamples(ctx, samples); err != nil && !logging.IsShutdown(err) {
 		// Losing a sample degrades a chart; it must never take the proxy
 		// down, so this is logged and dropped.
 		c.logger.Error("write metrics samples", "error", err, "samples", len(samples))
@@ -92,7 +93,9 @@ func (c *Collector) prune(ctx context.Context, retention time.Duration) {
 	}
 	n, err := c.repo.Prune(ctx, time.Now().Add(-retention))
 	if err != nil {
-		c.logger.Error("prune metrics history", "error", err)
+		if !logging.IsShutdown(err) {
+			c.logger.Error("prune metrics history", "error", err)
+		}
 		return
 	}
 	if n > 0 {

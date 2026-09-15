@@ -46,6 +46,12 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id int64) (*User, error)
 	Create(ctx context.Context, u *User) error
 	UpdatePassword(ctx context.Context, id int64, passwordHash string) error
+	// UpdateRole changes what an account may do. The caller is responsible
+	// for refusing to demote the last administrator.
+	UpdateRole(ctx context.Context, id int64, role Role) error
+	// CountAdmins is what makes that check possible without loading every
+	// user.
+	CountAdmins(ctx context.Context) (int, error)
 	TouchLogin(ctx context.Context, id int64, at time.Time) error
 	Delete(ctx context.Context, id int64) error
 	Count(ctx context.Context) (int, error)

@@ -172,6 +172,7 @@ func (s *Server) routes() http.Handler {
 	read.HandleFunc("GET /api/access-lists", accessLists.HandleList)
 	read.HandleFunc("GET /api/access-lists/{id}", accessLists.HandleGet)
 	read.HandleFunc("GET /api/access-log", s.handleAccessLog)
+	read.HandleFunc("GET /api/users", s.handleListUsers)
 	mux.Handle("/api/", s.authenticate(read))
 
 	// Mutating endpoints, admins only. They are registered on their own mux
@@ -188,6 +189,10 @@ func (s *Server) routes() http.Handler {
 	write.HandleFunc("PUT /api/access-lists/{id}", accessLists.HandleUpdate)
 	write.HandleFunc("DELETE /api/access-lists/{id}", accessLists.HandleDelete)
 	redirects.Register(read, write)
+	write.HandleFunc("POST /api/users", s.handleCreateUser)
+	write.HandleFunc("PUT /api/users/{id}/role", s.handleUpdateUserRole)
+	write.HandleFunc("POST /api/users/{id}/password", s.handleResetUserPassword)
+	write.HandleFunc("DELETE /api/users/{id}", s.handleDeleteUser)
 
 	mux.Handle("POST /api/hosts", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/hosts/{id}", s.authenticate(s.requireWrite(write)))
@@ -198,6 +203,10 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("POST /api/access-lists", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/access-lists/{id}", s.authenticate(s.requireWrite(write)))
 	mux.Handle("DELETE /api/access-lists/{id}", s.authenticate(s.requireWrite(write)))
+	mux.Handle("POST /api/users", s.authenticate(s.requireWrite(write)))
+	mux.Handle("PUT /api/users/{id}/role", s.authenticate(s.requireWrite(write)))
+	mux.Handle("POST /api/users/{id}/password", s.authenticate(s.requireWrite(write)))
+	mux.Handle("DELETE /api/users/{id}", s.authenticate(s.requireWrite(write)))
 	mux.Handle("POST /api/redirects", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/redirects/{id}", s.authenticate(s.requireWrite(write)))
 	mux.Handle("DELETE /api/redirects/{id}", s.authenticate(s.requireWrite(write)))

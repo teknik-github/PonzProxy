@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ponzproxy/ponzproxy/internal/domain"
+	"github.com/ponzproxy/ponzproxy/internal/platform/logging"
 )
 
 const (
@@ -171,7 +172,9 @@ func (w *Writer) flush(ctx context.Context, batch []domain.AccessLogEntry) {
 func (w *Writer) prune(ctx context.Context) {
 	n, err := w.repo.Prune(ctx, time.Now().Add(-w.retention), w.maxRows)
 	if err != nil {
-		w.logger.Error("prune access log", "error", err)
+		if !logging.IsShutdown(err) {
+			w.logger.Error("prune access log", "error", err)
+		}
 		return
 	}
 	if n > 0 {

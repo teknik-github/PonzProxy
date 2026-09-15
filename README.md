@@ -26,11 +26,27 @@ make            # builds the dashboard and the binary into bin/ponzproxy
 On first start it creates an `admin` account and prints a generated password
 once. Open the console on <http://localhost:8080> and change it.
 
-With Docker:
+With Docker — no build needed, the image is published for `linux/amd64` and
+`linux/arm64`:
 
 ```sh
 docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml logs | grep -A3 "first account"
 ```
+
+Or directly:
+
+```sh
+docker run -d --name ponzproxy \
+  -p 80:80 -p 443:443 -p 127.0.0.1:8080:8080 \
+  -v ponzproxy-data:/data \
+  --cap-add NET_BIND_SERVICE \
+  ghcr.io/teknik-github/ponzproxy:latest
+```
+
+Pin a version rather than `latest` for anything you care about:
+`ghcr.io/teknik-github/ponzproxy:0.1.0`. Every release tag has a matching
+image, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
 
 ## Ports
 

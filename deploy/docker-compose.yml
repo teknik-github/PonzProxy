@@ -1,23 +1,38 @@
+# Runs the published image. Nothing is built locally — `docker compose pull`
+# fetches it from the GitHub Container Registry.
+#
+# To build from source instead (for development, or on an architecture with no
+# published image), comment out `image:` and uncomment the `build:` block.
+
 services:
   ponzproxy:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    image: ghcr.io/teknik-github/ponzproxy:latest
+    # build:
+    #   context: ..
+    #   dockerfile: deploy/Dockerfile
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
       # The console is bound to localhost. Reach it over a VPN or an SSH
-      # tunnel rather than publishing it to the internet.
+      # tunnel rather than publishing it to the internet: a password is all
+      # that stands in front of it.
       - "127.0.0.1:8080:8080"
     volumes:
+      # Holds the SQLite database, the ACME account key and issued
+      # certificates. Back this up; everything else is reproducible.
       - ponzproxy-data:/data
     environment:
+      # Receives expiry warnings from the certificate authority.
       PONZ_ACME_EMAIL: ""
       PONZ_LOG_LEVEL: info
       # Point at the staging CA while testing. Production issuance is rate
       # limited per domain, and a failed experiment can lock you out for a week.
       # PONZ_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory
+      #
+      # Set this ONLY when ponzproxy sits behind a proxy you control, such as
+      # a Cloudflare Tunnel. Any client can forge the header otherwise.
+      # PONZ_TRUSTED_PROXY_HEADER: CF-Connecting-IP
     cap_add:
       # Required to bind 80 and 443 while running as a non-root user.
       - NET_BIND_SERVICE

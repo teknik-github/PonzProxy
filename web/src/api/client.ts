@@ -11,9 +11,11 @@ import type {
   Host,
   HostInput,
   Resolution,
+  Role,
   Series,
   Snapshot,
   User,
+  UserInput,
 } from './types'
 
 /** ApiError carries the server's own explanation, including per-field
@@ -143,6 +145,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
+
+  listUsers: () => request<User[]>('/api/users'),
+
+  createUser: (input: UserInput) =>
+    request<User>('/api/users', { method: 'POST', body: JSON.stringify(input) }),
+
+  updateUserRole: (id: number, role: Role) =>
+    request<void>(`/api/users/${id}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    }),
+
+  resetUserPassword: (id: number, newPassword: string) =>
+    request<void>(`/api/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    }),
+
+  deleteUser: (id: number) => request<void>(`/api/users/${id}`, { method: 'DELETE' }),
 
   listHosts: () => request<Host[]>('/api/hosts'),
 
