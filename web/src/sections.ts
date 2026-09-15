@@ -8,6 +8,8 @@ export type Section =
   | "redirects"
   | "access-lists"
   | "access-log"
+  | "alerts"
+  | "users"
   | "certificates"
   | "account"
 
@@ -17,6 +19,8 @@ export const SECTION_TITLES: Record<Section, string> = {
   redirects: "Redirects",
   "access-lists": "Access lists",
   "access-log": "Access log",
+  alerts: "Alerts",
+  users: "Users",
   certificates: "Certificates",
   account: "Account",
 }

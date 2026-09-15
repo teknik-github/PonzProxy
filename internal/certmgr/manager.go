@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/certmgr/dnsprovider"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 	"github.com/ponzproxy/ponzproxy/internal/platform/logging"
@@ -44,7 +45,14 @@ type Manager struct {
 	// issuing serialises orders so a burst of saves cannot open several
 	// ACME orders for the same domain at once.
 	issuing sync.Mutex
+
+	// alerts is optional; a nil raiser means nobody asked to be told.
+	alerts alerts.Raiser
 }
+
+// SetAlerts wires in the alert dispatcher, after construction because the two
+// are built in either order.
+func (m *Manager) SetAlerts(r alerts.Raiser) { m.alerts = r }
 
 // Config carries what the manager needs from process configuration.
 type Config struct {
@@ -153,6 +161,11 @@ func (m *Manager) Issue(ctx context.Context, id int64) error {
 		if err := m.repo.Update(ctx, cert); err != nil {
 			m.logger.Error("record issuance failure", "name", cert.Name, "error", err)
 		}
+		// A failed renewal is the only warning before a certificate simply
+		// expires, so it is worth waking someone for.
+		if !logging.IsShutdown(issueErr) {
+			alerts.CertificateFailed(m.alerts, cert.Name, issueErr.Error())
+		}
 		return issueErr
 	}
 
@@ -196,6 +209,11 @@ func (m *Manager) renewDue(ctx context.Context) {
 	for _, cert := range due {
 		if ctx.Err() != nil {
 			return
+		}
+		// Warn while there is still time to act, separately from whether
+		// the automatic attempt below succeeds.
+		if days := int(cert.ExpiresIn().Hours() / 24); days <= 14 {
+			alerts.CertificateExpiring(m.alerts, cert.Name, days)
 		}
 		if err := m.Issue(ctx, cert.ID); err != nil && !logging.IsShutdown(err) {
 			// One failure must not stop the others from being attempted;

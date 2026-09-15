@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 	"github.com/ponzproxy/ponzproxy/internal/health"
 	"github.com/ponzproxy/ponzproxy/internal/metrics"
@@ -46,6 +47,9 @@ type Options struct {
 	Certs     CertificateResolver
 	// AccessLog records requests for hosts that ask for it. Optional.
 	AccessLog AccessRecorder
+	// Alerts is told when passive health ejects a backend. Optional, and
+	// never waited on: Raise must not block.
+	Alerts alerts.Raiser
 
 	// TrustedClientIPHeader, when set, takes the client address from that
 	// header instead of the connection. See config.Config for the warning

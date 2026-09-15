@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/balancer"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 )
@@ -35,11 +36,18 @@ type StateChangeFunc func(hostID int64, backend *balancer.Backend, healthy bool)
 type Checker struct {
 	logger   *slog.Logger
 	onChange StateChangeFunc
+	// alerts is optional: nothing here waits on a delivery, and a nil
+	// raiser simply means no one asked to be told.
+	alerts alerts.Raiser
 
 	mu      sync.Mutex
 	running map[int64]*hostChecker
 	closed  bool
 }
+
+// SetAlerts wires in the alert dispatcher. It is set after construction
+// because the dispatcher and the checker are built in either order.
+func (c *Checker) SetAlerts(r alerts.Raiser) { c.alerts = r }
 
 // New builds a checker. onChange may be nil when no one is listening.
 func New(logger *slog.Logger, onChange StateChangeFunc) *Checker {
@@ -111,6 +119,7 @@ func (c *Checker) start(t Target) *hostChecker {
 		client: newProbeClient(t.Check.Timeout),
 		logger: c.logger.With("host", t.Name, "hostId", t.HostID),
 		notify: c.onChange,
+		alerts: c.alerts,
 	}
 	go hc.run(ctx)
 	return hc
@@ -119,6 +128,7 @@ func (c *Checker) start(t Target) *hostChecker {
 // hostChecker probes every backend of one host on a fixed interval.
 type hostChecker struct {
 	target Target
+	alerts alerts.Raiser
 	cancel context.CancelFunc
 	done   chan struct{}
 	client *http.Client
@@ -200,8 +210,18 @@ func (h *hostChecker) probe(ctx context.Context, b *balancer.Backend) {
 			// rest of a passive ejection window it earned earlier.
 			b.ClearEjection()
 			h.logger.Info("upstream recovered", "upstream", b.Key())
+			alerts.UpstreamRecovered(h.alerts, h.target.Name, b.Key())
 		} else {
 			h.logger.Warn("upstream marked down", "upstream", b.Key(), "error", err)
+			alerts.UpstreamDown(h.alerts, h.target.Name, b.Key(), errString(err))
+
+			// Losing the last one is a different event: it is the moment
+			// visitors start seeing errors, not merely a backend going
+			// away, and an operator needs to be able to alert on it
+			// separately.
+			if up, total := h.target.Pool.HealthyCount(); up == 0 && total > 0 {
+				alerts.HostUnavailable(h.alerts, h.target.Name, total)
+			}
 		}
 		h.notify(h.target.HostID, b, healthy)
 	}
@@ -235,6 +255,14 @@ func (h *hostChecker) doProbe(ctx context.Context, b *balancer.Backend) error {
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// errString renders a probe failure for an alert, tolerating a nil error.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // newProbeClient builds a client dedicated to health checks. Redirects are not

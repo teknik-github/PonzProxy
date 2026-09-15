@@ -3,6 +3,11 @@ import type {
   AccessListInput,
   AccessLogFilters,
   AccessLogPage,
+  AlertChannel,
+  AlertChannelInput,
+  AlertEventOption,
+  AlertStats,
+  AlertTestResult,
   AlgorithmOption,
   Certificate,
   CertificateInput,
@@ -145,6 +150,30 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
+
+  listAlertChannels: () => request<AlertChannel[]>('/api/alert-channels'),
+
+  listAlertEvents: () => request<AlertEventOption[]>('/api/alert-events'),
+
+  alertStats: () => request<AlertStats>('/api/alert-stats'),
+
+  createAlertChannel: (input: AlertChannelInput) =>
+    request<AlertChannel>('/api/alert-channels', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateAlertChannel: (id: number, input: AlertChannelInput) =>
+    request<AlertChannel>(`/api/alert-channels/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  deleteAlertChannel: (id: number) =>
+    request<void>(`/api/alert-channels/${id}`, { method: 'DELETE' }),
+
+  testAlertChannel: (id: number) =>
+    request<AlertTestResult>(`/api/alert-channels/${id}/test`, { method: 'POST' }),
 
   listUsers: () => request<User[]>('/api/users'),
 

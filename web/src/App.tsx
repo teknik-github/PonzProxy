@@ -12,10 +12,12 @@ import { Account } from "@/pages/Account"
 import { Certificates } from "@/pages/Certificates"
 import { AccessLists } from "@/pages/AccessLists"
 import { AccessLog } from "@/pages/AccessLog"
+import { Alerts } from "@/pages/Alerts"
 import { Hosts } from "@/pages/Hosts"
 import { Redirects } from "@/pages/Redirects"
 import { SignIn } from "@/pages/SignIn"
 import { Traffic } from "@/pages/Traffic"
+import { Users } from "@/pages/Users"
 import type { Section } from "@/sections"
 
 export function App() {
@@ -143,6 +145,8 @@ export function App() {
                   onChanged={refresh}
                 />
               )}
+              {section === "alerts" && <Alerts canEdit={canEdit} />}
+              {section === "users" && <Users canEdit={canEdit} />}
               {section === "account" && <Account />}
             </div>
           </div>

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/balancer"
 	"github.com/ponzproxy/ponzproxy/internal/metrics"
 )
@@ -147,6 +148,8 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, rt *route, star
 				"failures", rt.host.PassiveHealth.MaxFails,
 				"ejectedFor", remaining.Round(time.Second),
 				"error", state.upstreamErr)
+			alerts.UpstreamEjected(e.opts.Alerts, rt.host.Name, backend.Key(),
+				remaining, state.upstreamErr.Error())
 		}
 
 		// A retry is only sound while the client has seen nothing and the

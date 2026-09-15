@@ -3,10 +3,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 )
@@ -102,4 +104,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 		return errors.Join(errBadRequest, err)
 	}
 	return nil
+}
+
+// contextWithTimeout bounds work that outlives a handler's own patience but
+// must still stop when the client goes away.
+func contextWithTimeout(r *http.Request, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), d)
 }

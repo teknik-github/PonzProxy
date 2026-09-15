@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ponzproxy/ponzproxy/internal/accesslog"
+	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/api"
 	"github.com/ponzproxy/ponzproxy/internal/certmgr"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
@@ -68,11 +69,13 @@ func run() error {
 	}
 
 	collector := metrics.New(db.Metrics(), logger)
+	dispatcher := alerts.New(db.AlertChannels(), logger)
 	accessLog := accesslog.New(db.AccessLog(), accesslog.Options{
 		Retention: cfg.AccessLogRetention,
 		MaxRows:   cfg.AccessLogMaxRows,
 	}, logger)
 	checker := health.New(logger, nil)
+	checker.SetAlerts(dispatcher)
 	defer checker.Close()
 
 	certs, err := certmgr.New(ctx, db.Certificates(), certmgr.Config{
@@ -83,6 +86,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	certs.SetAlerts(dispatcher)
 
 	engine := proxy.NewEngine(proxy.Options{
 		Logger:                logger,
@@ -90,6 +94,7 @@ func run() error {
 		Health:                checker,
 		Certs:                 certs,
 		AccessLog:             accessLog,
+		Alerts:                dispatcher,
 		TrustedClientIPHeader: cfg.TrustedProxyHeader,
 	})
 	defer engine.Close()
@@ -155,6 +160,10 @@ func run() error {
 		AccessLists:    db.AccessLists(),
 		Redirects:      db.Redirects(),
 		AccessLogs:     db.AccessLog(),
+		AlertChannels:  db.AlertChannels(),
+		ReloadAlerts:   dispatcher.Reload,
+		AlertTester:    dispatcher.Test,
+		AlertStats:     dispatcher.Stats,
 		AccessLogStats: accessLog.Stats,
 		CertManager:    certs,
 		Collector:      collector,
@@ -179,6 +188,7 @@ func run() error {
 	})
 	spawn("certificates", certs.Run)
 	spawn("accesslog", accessLog.Run)
+	spawn("alerts", dispatcher.Run)
 	spawn("websocket", apiServer.Run)
 
 	servers := []*namedServer{

@@ -353,3 +353,60 @@ export interface UserInput {
   password: string
   role: Role
 }
+
+/* --------------------------------------------------------------- alerts -- */
+
+export type AlertEvent =
+  | 'upstream_down'
+  | 'upstream_recovered'
+  | 'upstream_ejected'
+  | 'host_unavailable'
+  | 'certificate_expiring'
+  | 'certificate_failed'
+
+export interface AlertEventOption {
+  value: AlertEvent
+  label: string
+  severity: string
+  description: string
+}
+
+export interface AlertChannel {
+  id: number
+  name: string
+  type: 'webhook'
+  enabled: boolean
+  /** Masked. The real URL is never sent to the console: for a chat webhook
+   *  the URL is itself the credential. */
+  url: string
+  events: AlertEvent[] | null
+  /** Nanoseconds, as Go encodes time.Duration. */
+  minInterval: number
+  minIntervalSeconds: number
+  lastAttempt?: string
+  lastError?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AlertChannelInput {
+  name: string
+  type: 'webhook'
+  enabled: boolean
+  /** Empty on an update keeps the stored URL, which is the only way to edit
+   *  a channel without retyping a secret the console never showed you. */
+  url: string
+  events: AlertEvent[]
+  minIntervalSeconds: number
+}
+
+export interface AlertStats {
+  sent: number
+  failed: number
+  dropped: number
+}
+
+export interface AlertTestResult {
+  delivered: boolean
+  error?: string
+}

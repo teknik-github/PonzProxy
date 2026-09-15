@@ -13,6 +13,12 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Alerts** — webhook channels told when an upstream drops out, is ejected by
+  passive health, comes back, when a host has nothing left to serve it, or when
+  a certificate is expiring or failed to renew. Repeats about the same subject
+  are suppressed, because an alert stream nobody can read is worse than none.
+  The webhook URL is stored but never returned by the API: for a chat webhook
+  the URL is itself the credential.
 - **Access log** — a searchable record of requests, switched on per host. The
   writer batches in the background and drops entries rather than slowing the
   proxy down, and says how many it dropped so an incomplete history never looks
@@ -24,6 +30,9 @@ Every released version has a matching container image and a git tag, so
 
 ### Fixed
 
+- A missing repository in the API's options used to surface as a nil
+  dereference on whichever request happened to need it. They are checked at
+  construction now, so a wiring mistake stops the process at boot instead.
 - A clean shutdown no longer logs "context canceled" at error level. Background
   loops all take the process context, so every one of them reported a fault on
   the way down.

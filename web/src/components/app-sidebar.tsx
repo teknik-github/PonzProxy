@@ -1,17 +1,18 @@
 import {
   IconActivity,
   IconArrowsExchange2,
+  IconBell,
   IconCertificate,
   IconFileText,
   IconRouteAltLeft,
   IconServer2,
   IconShieldLock,
   IconUserCog,
+  IconUsersGroup,
 } from "@tabler/icons-react"
 
 import { NavHosts } from "@/components/nav-hosts"
 import { NavMain, type NavItem } from "@/components/nav-main"
-import { NavSoon } from "@/components/nav-soon"
 import { NavStatus } from "@/components/nav-status"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -89,6 +90,8 @@ export function AppSidebar({
             : undefined,
       alarm: expiring > 0,
     },
+    { id: "alerts", title: "Alerts", icon: IconBell },
+    { id: "users", title: "Users", icon: IconUsersGroup },
     { id: "account", title: "Account", icon: IconUserCog },
   ]
 
@@ -136,7 +139,6 @@ export function AppSidebar({
           onEdit={onEditHost}
           canEdit={canEdit}
         />
-        <NavSoon />
         <NavStatus
           system={snapshot?.system}
           requestsPerSec={snapshot?.totals.requestsPerSec ?? 0}

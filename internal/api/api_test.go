@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 	"testing"
@@ -70,19 +72,21 @@ func newHarness(t *testing.T) *harness {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &harness{t: t, store: db, certs: &stubCertService{}}
 	h.server = api.NewServer(ctx, api.Options{
-		Hosts:        db.Hosts(),
-		Certs:        db.Certificates(),
-		Users:        db.Users(),
-		Metrics:      db.Metrics(),
-		AccessLists:  db.AccessLists(),
-		Redirects:    db.Redirects(),
-		CertManager:  h.certs,
-		Collector:    metrics.New(db.Metrics(), logger),
-		JWTSecret:    []byte("test-secret-value-for-signing-only"),
-		SessionTTL:   time.Hour,
-		PasswordCost: testPasswordCost,
-		ApplyConfig:  func(context.Context) error { h.applied++; return nil },
-		Logger:       logger,
+		Hosts:         db.Hosts(),
+		Certs:         db.Certificates(),
+		Users:         db.Users(),
+		Metrics:       db.Metrics(),
+		AccessLists:   db.AccessLists(),
+		Redirects:     db.Redirects(),
+		AccessLogs:    db.AccessLog(),
+		AlertChannels: db.AlertChannels(),
+		CertManager:   h.certs,
+		Collector:     metrics.New(db.Metrics(), logger),
+		JWTSecret:     []byte("test-secret-value-for-signing-only"),
+		SessionTTL:    time.Hour,
+		PasswordCost:  testPasswordCost,
+		ApplyConfig:   func(context.Context) error { h.applied++; return nil },
+		Logger:        logger,
 	})
 	return h
 }
@@ -564,4 +568,20 @@ func TestSuccessfulLoginKeepsTheBudgetClear(t *testing.T) {
 			t.Fatalf("status = %d for the correct password, want 200", got)
 		}
 	}
+}
+
+// TestMissingOptionsFailAtConstruction pins the guard that turned a wiring
+// slip into a nil dereference on a live request: a forgotten repository must
+// stop the process at boot, where it is obvious.
+func TestMissingOptionsFailAtConstruction(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("constructing a server with no options succeeded")
+		}
+		if !strings.Contains(fmt.Sprint(v), "AlertChannels") {
+			t.Errorf("the panic does not name what is missing: %v", v)
+		}
+	}()
+	api.NewServer(context.Background(), api.Options{})
 }

@@ -2,13 +2,16 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/ponzproxy/ponzproxy/internal/accesslog"
+	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/api/ws"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 	"github.com/ponzproxy/ponzproxy/internal/metrics"
@@ -27,13 +30,20 @@ type CertificateService interface {
 // Options are the collaborators the server needs. Everything is an interface
 // or a value, so nothing here reaches back into the data plane directly.
 type Options struct {
-	Hosts       domain.HostRepository
-	Certs       domain.CertificateRepository
-	Users       domain.UserRepository
-	Metrics     domain.MetricsRepository
-	AccessLists domain.AccessListRepository
-	Redirects   domain.RedirectRepository
-	AccessLogs  domain.AccessLogRepository
+	Hosts         domain.HostRepository
+	Certs         domain.CertificateRepository
+	Users         domain.UserRepository
+	Metrics       domain.MetricsRepository
+	AccessLists   domain.AccessListRepository
+	Redirects     domain.RedirectRepository
+	AccessLogs    domain.AccessLogRepository
+	AlertChannels domain.AlertChannelRepository
+
+	// ReloadAlerts republishes the channel list to the dispatcher, and
+	// AlertTester delivers one sample alert. Both optional.
+	ReloadAlerts func(context.Context) error
+	AlertTester  func(context.Context, *domain.AlertChannel) error
+	AlertStats   func() alerts.Stats
 
 	// AccessLogStats reports what the log writer has written and dropped,
 	// so the console can show that a history is incomplete. Optional.
@@ -83,9 +93,48 @@ type Server struct {
 	baseCtx context.Context
 }
 
+// requiredOptions names the collaborators without which some endpoint would
+// panic. They are checked at construction because the alternative is a nil
+// dereference in a handler — a 500 discovered by whoever happens to click the
+// wrong screen first, long after the wiring mistake was made.
+func (o Options) validate() error {
+	missing := []string{}
+	for name, present := range map[string]bool{
+		"Hosts":         o.Hosts != nil,
+		"Certs":         o.Certs != nil,
+		"Users":         o.Users != nil,
+		"Metrics":       o.Metrics != nil,
+		"AccessLists":   o.AccessLists != nil,
+		"Redirects":     o.Redirects != nil,
+		"AccessLogs":    o.AccessLogs != nil,
+		"AlertChannels": o.AlertChannels != nil,
+		"CertManager":   o.CertManager != nil,
+		"Collector":     o.Collector != nil,
+		"Logger":        o.Logger != nil,
+	} {
+		if !present {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return fmt.Errorf("api: these options are required but were not set: %s",
+		strings.Join(missing, ", "))
+}
+
 // NewServer wires the routes. ctx bounds the lifetime of background work
 // started by handlers.
+//
+// It panics when a required collaborator is missing: that is a wiring mistake
+// in the composition root, it cannot be recovered from at runtime, and failing
+// at boot is far better than failing on one unlucky request.
 func NewServer(ctx context.Context, opts Options) *Server {
+	if err := opts.validate(); err != nil {
+		panic(err)
+	}
+
 	if opts.LiveInterval <= 0 {
 		opts.LiveInterval = time.Second
 	}
@@ -173,6 +222,9 @@ func (s *Server) routes() http.Handler {
 	read.HandleFunc("GET /api/access-lists/{id}", accessLists.HandleGet)
 	read.HandleFunc("GET /api/access-log", s.handleAccessLog)
 	read.HandleFunc("GET /api/users", s.handleListUsers)
+	read.HandleFunc("GET /api/alert-channels", s.handleListAlertChannels)
+	read.HandleFunc("GET /api/alert-events", s.handleListAlertEvents)
+	read.HandleFunc("GET /api/alert-stats", s.handleAlertStats)
 	mux.Handle("/api/", s.authenticate(read))
 
 	// Mutating endpoints, admins only. They are registered on their own mux
@@ -193,6 +245,10 @@ func (s *Server) routes() http.Handler {
 	write.HandleFunc("PUT /api/users/{id}/role", s.handleUpdateUserRole)
 	write.HandleFunc("POST /api/users/{id}/password", s.handleResetUserPassword)
 	write.HandleFunc("DELETE /api/users/{id}", s.handleDeleteUser)
+	write.HandleFunc("POST /api/alert-channels", s.handleCreateAlertChannel)
+	write.HandleFunc("PUT /api/alert-channels/{id}", s.handleUpdateAlertChannel)
+	write.HandleFunc("DELETE /api/alert-channels/{id}", s.handleDeleteAlertChannel)
+	write.HandleFunc("POST /api/alert-channels/{id}/test", s.handleTestAlertChannel)
 
 	mux.Handle("POST /api/hosts", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/hosts/{id}", s.authenticate(s.requireWrite(write)))
@@ -207,6 +263,10 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("PUT /api/users/{id}/role", s.authenticate(s.requireWrite(write)))
 	mux.Handle("POST /api/users/{id}/password", s.authenticate(s.requireWrite(write)))
 	mux.Handle("DELETE /api/users/{id}", s.authenticate(s.requireWrite(write)))
+	mux.Handle("POST /api/alert-channels", s.authenticate(s.requireWrite(write)))
+	mux.Handle("PUT /api/alert-channels/{id}", s.authenticate(s.requireWrite(write)))
+	mux.Handle("DELETE /api/alert-channels/{id}", s.authenticate(s.requireWrite(write)))
+	mux.Handle("POST /api/alert-channels/{id}/test", s.authenticate(s.requireWrite(write)))
 	mux.Handle("POST /api/redirects", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/redirects/{id}", s.authenticate(s.requireWrite(write)))
 	mux.Handle("DELETE /api/redirects/{id}", s.authenticate(s.requireWrite(write)))
