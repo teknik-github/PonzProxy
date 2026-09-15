@@ -11,9 +11,12 @@ import (
 	"strings"
 )
 
-// dist holds the Vite build output. The directory is created by `make ui`;
-// the .gitkeep placeholder is what lets the package compile in a fresh
-// checkout before the frontend has ever been built.
+// dist holds the Vite build output.
+//
+// internal/webui/dist/.gitkeep is tracked precisely so this compiles in a
+// fresh checkout, before the frontend has ever been built: go:embed fails the
+// build outright when a pattern matches nothing. Handler then reports
+// ErrNotBuilt at runtime, and the API still serves.
 //
 //go:embed all:dist
 var dist embed.FS

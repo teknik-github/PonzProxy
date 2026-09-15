@@ -15,6 +15,10 @@ export default defineConfig({
   },
   build: {
     outDir: '../internal/webui/dist',
+    // The directory is wiped so stale hashed assets do not accumulate into
+    // the binary. The build script puts .gitkeep back afterwards: it is the
+    // one tracked file there, and without it a fresh checkout cannot compile
+    // because go:embed needs at least one match.
     emptyOutDir: true,
     // The console is opened over a LAN more often than over the internet;
     // a smaller bundle matters less than being able to read a stack trace
