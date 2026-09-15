@@ -6,6 +6,7 @@ import {
   IconFileText,
   IconRouteAltLeft,
   IconServer2,
+  IconSitemap,
   IconShieldLock,
   IconUserCog,
   IconUsersGroup,
@@ -64,6 +65,7 @@ export function AppSidebar({
 
   const items: NavItem[] = [
     { id: "traffic", title: "Traffic", icon: IconActivity },
+    { id: "architecture", title: "Request path", icon: IconSitemap },
     {
       id: "hosts",
       title: "Hosts",

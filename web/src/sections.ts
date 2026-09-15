@@ -4,6 +4,7 @@
  *  notices. */
 export type Section =
   | "traffic"
+  | "architecture"
   | "hosts"
   | "redirects"
   | "access-lists"
@@ -15,6 +16,7 @@ export type Section =
 
 export const SECTION_TITLES: Record<Section, string> = {
   traffic: "Traffic",
+  architecture: "Request path",
   hosts: "Hosts",
   redirects: "Redirects",
   "access-lists": "Access lists",

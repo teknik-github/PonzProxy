@@ -81,6 +81,9 @@ type Host struct {
 	// Guardian inspects requests for obvious attack patterns. Off by
 	// default; see Guardian.
 	Guardian Guardian `json:"guardian"`
+	// Cache serves cacheable upstream responses for the paths an operator
+	// lists from memory instead of the backend. Off by default; see Cache.
+	Cache Cache `json:"cache"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -230,6 +233,7 @@ func (h *Host) Normalize() {
 	}
 
 	h.Guardian.Normalize()
+	h.Cache.Normalize()
 
 	ph := &h.PassiveHealth
 	if ph.MaxFails <= 0 {
@@ -304,6 +308,13 @@ func (h *Host) Validate() error {
 		var guard *ValidationError
 		if errors.As(err, &guard) {
 			v.Fields = append(v.Fields, guard.Fields...)
+		}
+	}
+
+	if err := h.Cache.Validate(); err != nil {
+		var cacheErr *ValidationError
+		if errors.As(err, &cacheErr) {
+			v.Fields = append(v.Fields, cacheErr.Fields...)
 		}
 	}
 

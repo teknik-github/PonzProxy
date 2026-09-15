@@ -28,6 +28,18 @@ type hostPayload struct {
 	PassiveHealth    passiveHealthPayload `json:"passiveHealth"`
 	AccessLog        accessLogPayload     `json:"accessLog"`
 	Guardian         guardianPayload      `json:"guardian"`
+	Cache            cachePayload         `json:"cache"`
+}
+
+// cachePayload is the per-host static asset cache. Durations are seconds, as
+// the health check and passive health payloads already do.
+type cachePayload struct {
+	Enabled        bool     `json:"enabled"`
+	Paths          []string `json:"paths"`
+	TTLSeconds     int      `json:"ttlSeconds"`
+	MaxTTLSeconds  int      `json:"maxTtlSeconds"`
+	MaxObjectBytes int64    `json:"maxObjectBytes"`
+	MaxBytes       int64    `json:"maxBytes"`
 }
 
 // guardianPayload is the per-host request inspection setting.
@@ -107,6 +119,14 @@ func (p hostPayload) toDomain() domain.Host {
 			Mode:         p.Guardian.Mode,
 			Rules:        p.Guardian.Rules,
 			MaxURILength: p.Guardian.MaxURILength,
+		},
+		Cache: domain.Cache{
+			Enabled:        p.Cache.Enabled,
+			Paths:          p.Cache.Paths,
+			TTL:            secondsToDuration(p.Cache.TTLSeconds),
+			MaxTTL:         secondsToDuration(p.Cache.MaxTTLSeconds),
+			MaxObjectBytes: p.Cache.MaxObjectBytes,
+			MaxBytes:       p.Cache.MaxBytes,
 		},
 	}
 	for _, u := range p.Upstreams {

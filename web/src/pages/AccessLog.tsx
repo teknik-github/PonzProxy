@@ -31,7 +31,10 @@ import {
 } from "@/components/ui/table"
 import { bytes, count, millis } from "@/format"
 
-const PAGE_SIZE = 100
+/** The sizes offered in the picker. 100 stays the default so the screen
+ *  behaves as it did before the choice existed. */
+const PAGE_SIZES = [10, 20, 50, 100] as const
+const DEFAULT_PAGE_SIZE = 100
 
 const WINDOWS = {
   "1h": { label: "Last hour", hours: 1 },
@@ -59,6 +62,7 @@ export function AccessLog({ hosts }: Props) {
   // keystroke against a table that can hold hundreds of thousands of rows.
   const [applied, setApplied] = useState("")
   const [offset, setOffset] = useState(0)
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -72,7 +76,7 @@ export function AccessLog({ hosts }: Props) {
         ...(failedOnly ? { failedOnly: true } : {}),
         from,
         to,
-        limit: PAGE_SIZE,
+        limit: pageSize,
         offset,
       })
       setPage(result)
@@ -82,7 +86,7 @@ export function AccessLog({ hosts }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [hostId, statusClass, applied, failedOnly, range, offset])
+  }, [hostId, statusClass, applied, failedOnly, range, offset, pageSize])
 
   useEffect(() => {
     void load()
@@ -92,7 +96,7 @@ export function AccessLog({ hosts }: Props) {
   // different result set shows nothing and looks broken.
   useEffect(() => {
     setOffset(0)
-  }, [hostId, statusClass, applied, failedOnly, range])
+  }, [hostId, statusClass, applied, failedOnly, range, pageSize])
 
   const entries = page?.entries ?? []
   const total = page?.total ?? 0
@@ -277,12 +281,34 @@ export function AccessLog({ hosts }: Props) {
               <span className="text-muted-foreground">
                 {offset + 1}–{offset + entries.length} of {count(total)}
               </span>
+
+              <div className="flex items-center gap-2">
+                <Label htmlFor="log-page-size" className="text-muted-foreground">
+                  Show
+                </Label>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(v) => setPageSize(Number(v))}
+                >
+                  <SelectTrigger id="log-page-size" className="w-20" size="sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZES.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="ml-auto flex gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={offset === 0}
-                  onClick={() => setOffset(Math.max(offset - PAGE_SIZE, 0))}
+                  onClick={() => setOffset(Math.max(offset - pageSize, 0))}
                 >
                   Newer
                 </Button>
@@ -290,7 +316,7 @@ export function AccessLog({ hosts }: Props) {
                   variant="outline"
                   size="sm"
                   disabled={offset + entries.length >= total}
-                  onClick={() => setOffset(offset + PAGE_SIZE)}
+                  onClick={() => setOffset(offset + pageSize)}
                 >
                   Older
                 </Button>

@@ -12,6 +12,7 @@ import { Account } from "@/pages/Account"
 import { Certificates } from "@/pages/Certificates"
 import { AccessLists } from "@/pages/AccessLists"
 import { AccessLog } from "@/pages/AccessLog"
+import { Architecture } from "@/pages/Architecture"
 import { Alerts } from "@/pages/Alerts"
 import { Hosts } from "@/pages/Hosts"
 import { Redirects } from "@/pages/Redirects"
@@ -111,6 +112,14 @@ export function App() {
 
               {section === "traffic" && (
                 <Traffic snapshot={snapshot} hosts={hosts} />
+              )}
+              {section === "architecture" && (
+                <Architecture
+                  snapshot={snapshot}
+                  hosts={hosts}
+                  certificates={certificates}
+                  accessLists={accessLists}
+                />
               )}
               {section === "hosts" && (
                 <Hosts

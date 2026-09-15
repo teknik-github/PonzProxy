@@ -271,6 +271,18 @@ function toInput(host: Host | null): HostInput {
       passiveHealth: { enabled: true, maxFails: 3, ejectForSeconds: 30 },
       accessLog: { enabled: false, includeQuery: false },
       guardian: { mode: "off", rules: [], maxUriLength: 2048 },
+      cache: {
+        enabled: false,
+        paths: [
+          ".js", ".mjs", ".css", ".woff", ".woff2", ".ico", ".png",
+          ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif",
+          "/assets/", "/static/",
+        ],
+        ttlSeconds: 300,
+        maxTtlSeconds: 86400,
+        maxObjectBytes: 1048576,
+        maxBytes: 67108864,
+      },
     }
   }
   return {
@@ -314,6 +326,14 @@ function toInput(host: Host | null): HostInput {
       mode: host.guardian.mode,
       rules: host.guardian.rules ?? [],
       maxUriLength: host.guardian.maxUriLength,
+    },
+    cache: {
+      enabled: host.cache.enabled,
+      paths: host.cache.paths ?? [],
+      ttlSeconds: nanosToSeconds(host.cache.ttl),
+      maxTtlSeconds: nanosToSeconds(host.cache.maxTtl),
+      maxObjectBytes: host.cache.maxObjectBytes,
+      maxBytes: host.cache.maxBytes,
     },
   }
 }
@@ -892,6 +912,111 @@ function HostSheet({
                     }
                   />
                 </FormField>
+              </>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Cache assets</h3>
+              <p className="text-muted-foreground text-xs">
+                Serves matching responses from memory instead of asking the
+                backend. Your origin always wins: a <code>Cache-Control</code>
+                {" "}saying not to cache overrides everything here, and a
+                response with no <code>Content-Length</code> is never stored.
+              </p>
+            </div>
+            <CheckField
+              label="Cache responses for the paths below"
+              checked={input.cache.enabled}
+              onChange={(v) => patch({ cache: { ...input.cache, enabled: v } })}
+            />
+            {input.cache.enabled && (
+              <>
+                <FormField
+                  label="Paths"
+                  hint="An entry starting with a dot is a file extension; anything else is a path prefix. Comma separated."
+                  error={fieldError("cache.paths")}
+                >
+                  <Input
+                    className="font-mono"
+                    value={input.cache.paths.join(", ")}
+                    onChange={(e) =>
+                      patch({
+                        cache: {
+                          ...input.cache,
+                          paths: e.target.value
+                            .split(",")
+                            .map((p) => p.trim())
+                            .filter(Boolean),
+                        },
+                      })
+                    }
+                  />
+                </FormField>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    label="Keep for (seconds)"
+                    hint="Used only when the origin does not say."
+                    error={fieldError("cache.ttl")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      value={input.cache.ttlSeconds}
+                      onChange={(e) =>
+                        patch({ cache: { ...input.cache, ttlSeconds: Number(e.target.value) } })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Never keep longer than (seconds)"
+                    hint="Caps an origin asking for a very long life."
+                    error={fieldError("cache.maxTtl")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      value={input.cache.maxTtlSeconds}
+                      onChange={(e) =>
+                        patch({ cache: { ...input.cache, maxTtlSeconds: Number(e.target.value) } })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Largest object (bytes)"
+                    hint="Anything bigger streams straight through."
+                    error={fieldError("cache.maxObjectBytes")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      value={input.cache.maxObjectBytes}
+                      onChange={(e) =>
+                        patch({
+                          cache: { ...input.cache, maxObjectBytes: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Memory budget for this host (bytes)"
+                    hint="Least recently used objects are dropped to stay inside it."
+                    error={fieldError("cache.maxBytes")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      value={input.cache.maxBytes}
+                      onChange={(e) =>
+                        patch({ cache: { ...input.cache, maxBytes: Number(e.target.value) } })
+                      }
+                    />
+                  </FormField>
+                </div>
               </>
             )}
           </div>

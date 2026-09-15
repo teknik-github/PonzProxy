@@ -77,6 +77,12 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// After access control and inspection on purpose: a request those would
+	// have refused must never be answered from cache instead.
+	if w = e.interceptCache(w, r, rt, &rt.host.Cache, start); w == nil {
+		return
+	}
+
 	e.forward(w, r, rt, start)
 }
 

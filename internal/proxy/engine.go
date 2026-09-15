@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ponzproxy/ponzproxy/internal/alerts"
+	"github.com/ponzproxy/ponzproxy/internal/cache"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 	"github.com/ponzproxy/ponzproxy/internal/health"
 	"github.com/ponzproxy/ponzproxy/internal/metrics"
@@ -101,6 +102,9 @@ type Engine struct {
 
 	// authCache keeps basic auth off the bcrypt path for repeat requests.
 	authCache *authCache
+
+	// caches holds the per-host static asset cache.
+	caches *cache.Store
 }
 
 // NewEngine builds the data plane. Call Reload before serving to install a
@@ -119,6 +123,7 @@ func NewEngine(opts Options) *Engine {
 	e.table.Store(buildRoutingTable(Config{}, nil))
 	e.reverseProxy = e.buildReverseProxy()
 	e.authCache = newAuthCache()
+	e.caches = cache.NewStore()
 	return e
 }
 
@@ -159,6 +164,16 @@ func (e *Engine) Reload(cfg Config) {
 		}
 		e.opts.Collector.Forget(keep)
 	}
+
+	// A host that was deleted, or whose operator just switched caching off,
+	// must release its objects rather than holding them until restart.
+	cached := make(map[int64]struct{}, len(table.routes))
+	for _, r := range table.routes {
+		if r.host.Cache.Active() {
+			cached[r.host.ID] = struct{}{}
+		}
+	}
+	e.forgetCaches(cached)
 
 	e.logger.Info("configuration reloaded",
 		"hosts", len(table.routes),

@@ -13,6 +13,19 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Request path** — a live diagram of internet → proxy → hosts → upstreams,
+  drawn from the existing WebSocket feed. Line weight is each backend's share
+  of the traffic, so a 5:2:1 weighting and an even split look different without
+  reading a number, and what sits in front of each host — TLS, redirect, access
+  list, inspection, log — is a row of five squares in the order the proxy
+  applies them.
+- **Cache assets** — per-host in-memory cache for static paths, with an LRU
+  budget and a per-object limit. The origin always wins: `no-store`,
+  `no-cache`, `private` and a past `Expires` all refuse a response whatever the
+  host setting says, and a response with no `Content-Length` is never stored
+  because there is then no way to tell a finished body from a truncated one.
+  Conditional requests are answered locally with 304. A host that does not use
+  it pays 70ns and no allocations.
 - **Block exploits** — per-host request inspection for path traversal, probes
   for sensitive files, control characters, self-identifying scanners, and SQL
   or shell injection. Three modes, and **detect** is the point of the design:

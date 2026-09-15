@@ -59,6 +59,7 @@ export interface Host {
   passiveHealth: PassiveHealth
   accessLog: AccessLogSettings
   guardian: Guardian
+  cache: Cache
   createdAt: string
   updatedAt: string
 }
@@ -227,6 +228,14 @@ export interface HostInput {
   }
   accessLog: AccessLogSettings
   guardian: Guardian
+  cache: {
+    enabled: boolean
+    paths: string[]
+    ttlSeconds: number
+    maxTtlSeconds: number
+    maxObjectBytes: number
+    maxBytes: number
+  }
 }
 
 export interface CertificateInput {
@@ -441,4 +450,19 @@ export interface GuardianRuleOption {
   /** False for rules that can match legitimate input and should be watched
    *  in detect mode first. */
   safeByDefault: boolean
+}
+
+/* ----------------------------------------------------------------- cache -- */
+
+/** Serves cacheable upstream responses from memory. The origin always wins:
+ *  a `Cache-Control` saying not to cache overrides this setting, and a
+ *  response with no `Content-Length` is never stored. */
+export interface Cache {
+  enabled: boolean
+  paths: string[] | null
+  /** Nanoseconds, as Go encodes time.Duration. */
+  ttl: number
+  maxTtl: number
+  maxObjectBytes: number
+  maxBytes: number
 }
