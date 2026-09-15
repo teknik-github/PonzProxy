@@ -13,6 +13,13 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Block exploits** — per-host request inspection for path traversal, probes
+  for sensitive files, control characters, self-identifying scanners, and SQL
+  or shell injection. Three modes, and **detect** is the point of the design:
+  on a proxy a false positive is a visible outage while a probe getting through
+  usually is not, so an operator can watch what would be blocked before
+  enforcing anything. Measured at 3µs per request; a request refused on length
+  costs 22ns.
 - **Alerts** — webhook channels told when an upstream drops out, is ejected by
   passive health, comes back, when a host has nothing left to serve it, or when
   a certificate is expiring or failed to renew. Repeats about the same subject

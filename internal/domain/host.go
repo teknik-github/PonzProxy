@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"net"
 	"net/url"
 	"strconv"
@@ -77,6 +78,9 @@ type Host struct {
 	// AccessLog records this host's requests for later search. Off by
 	// default; see AccessLogSettings.
 	AccessLog AccessLogSettings `json:"accessLog"`
+	// Guardian inspects requests for obvious attack patterns. Off by
+	// default; see Guardian.
+	Guardian Guardian `json:"guardian"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -225,6 +229,8 @@ func (h *Host) Normalize() {
 		hc.UnhealthyThreshold = 3
 	}
 
+	h.Guardian.Normalize()
+
 	ph := &h.PassiveHealth
 	if ph.MaxFails <= 0 {
 		ph.MaxFails = 3
@@ -292,6 +298,13 @@ func (h *Host) Validate() error {
 	if h.HealthCheck.ExpectStatus != 0 &&
 		(h.HealthCheck.ExpectStatus < 100 || h.HealthCheck.ExpectStatus > 599) {
 		v.Add("healthCheck.expectStatus", "must be a valid HTTP status, or 0 to accept any 2xx/3xx")
+	}
+
+	if err := h.Guardian.Validate(); err != nil {
+		var guard *ValidationError
+		if errors.As(err, &guard) {
+			v.Fields = append(v.Fields, guard.Fields...)
+		}
 	}
 
 	if h.PassiveHealth.MaxFails < 1 || h.PassiveHealth.MaxFails > 100 {

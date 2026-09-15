@@ -19,7 +19,8 @@ const hostColumns = `
 	websocket_support, preserve_host, hc_enabled, hc_path, hc_interval_ms,
 	hc_timeout_ms, hc_healthy_threshold, hc_unhealthy_threshold,
 	hc_expect_status, ph_enabled, ph_max_fails, ph_eject_for_ms,
-	log_enabled, log_include_query, created_at, updated_at`
+	log_enabled, log_include_query, guardian_mode, guardian_max_uri,
+	created_at, updated_at`
 
 func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -53,6 +54,9 @@ func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	if err := r.attachUpstreams(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachGuardianRules(ctx, byID); err != nil {
+		return nil, err
+	}
 	return hosts, nil
 }
 
@@ -71,6 +75,9 @@ func (r *hostRepo) Get(ctx context.Context, id int64) (*domain.Host, error) {
 	if err := r.attachUpstreams(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachGuardianRules(ctx, byID); err != nil {
+		return nil, err
+	}
 	return h, nil
 }
 
@@ -86,8 +93,9 @@ func (r *hostRepo) Create(ctx context.Context, h *domain.Host) error {
 				hc_path, hc_interval_ms, hc_timeout_ms, hc_healthy_threshold,
 				hc_unhealthy_threshold, hc_expect_status,
 				ph_enabled, ph_max_fails, ph_eject_for_ms,
-				log_enabled, log_include_query, created_at, updated_at
-			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				log_enabled, log_include_query, guardian_mode, guardian_max_uri,
+				created_at, updated_at
+			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			hostInsertArgs(h)...)
 		if err != nil {
 			return translateErr(err)
@@ -111,7 +119,8 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 				hc_interval_ms = ?, hc_timeout_ms = ?, hc_healthy_threshold = ?,
 				hc_unhealthy_threshold = ?, hc_expect_status = ?,
 				ph_enabled = ?, ph_max_fails = ?, ph_eject_for_ms = ?,
-				log_enabled = ?, log_include_query = ?, updated_at = ?
+				log_enabled = ?, log_include_query = ?,
+				guardian_mode = ?, guardian_max_uri = ?, updated_at = ?
 			WHERE id = ?`,
 			hostUpdateArgs(h)...)
 		if err != nil {
@@ -130,6 +139,10 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 			return translateErr(err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM upstreams WHERE host_id = ?`, h.ID); err != nil {
+			return translateErr(err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM host_guardian_rules WHERE host_id = ?`, h.ID); err != nil {
 			return translateErr(err)
 		}
 		return writeHostChildren(ctx, tx, h)
@@ -185,6 +198,30 @@ func (r *hostRepo) attachDomains(ctx context.Context, byID map[int64]*domain.Hos
 	return translateErr(rows.Err())
 }
 
+func (r *hostRepo) attachGuardianRules(ctx context.Context, byID map[int64]*domain.Host) error {
+	if len(byID) == 0 {
+		return nil
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT host_id, rule FROM host_guardian_rules ORDER BY host_id, rule`)
+	if err != nil {
+		return translateErr(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var hostID int64
+		var rule string
+		if err := rows.Scan(&hostID, &rule); err != nil {
+			return err
+		}
+		if h, ok := byID[hostID]; ok {
+			h.Guardian.Rules = append(h.Guardian.Rules, domain.GuardianRule(rule))
+		}
+	}
+	return translateErr(rows.Err())
+}
+
 func (r *hostRepo) attachUpstreams(ctx context.Context, byID map[int64]*domain.Host) error {
 	if len(byID) == 0 {
 		return nil
@@ -218,6 +255,13 @@ func writeHostChildren(ctx context.Context, tx *sql.Tx, h *domain.Host) error {
 			`INSERT INTO host_domains (host_id, domain, position) VALUES (?,?,?)`,
 			h.ID, d, i); err != nil {
 			return domainConflict(err, d)
+		}
+	}
+	for _, rule := range h.Guardian.Rules {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO host_guardian_rules (host_id, rule) VALUES (?,?)`,
+			h.ID, string(rule)); err != nil {
+			return translateErr(err)
 		}
 	}
 	for i := range h.Upstreams {
@@ -267,6 +311,7 @@ func hostInsertArgs(h *domain.Host) []any {
 		h.PassiveHealth.Enabled, h.PassiveHealth.MaxFails,
 		h.PassiveHealth.EjectFor.Milliseconds(),
 		h.AccessLog.Enabled, h.AccessLog.IncludeQuery,
+		string(h.Guardian.Mode), h.Guardian.MaxURILength,
 		h.CreatedAt.Unix(), h.UpdatedAt.Unix(),
 	}
 }
@@ -283,6 +328,7 @@ func hostUpdateArgs(h *domain.Host) []any {
 		h.PassiveHealth.Enabled, h.PassiveHealth.MaxFails,
 		h.PassiveHealth.EjectFor.Milliseconds(),
 		h.AccessLog.Enabled, h.AccessLog.IncludeQuery,
+		string(h.Guardian.Mode), h.Guardian.MaxURILength,
 		h.UpdatedAt.Unix(), h.ID,
 	}
 }
@@ -305,6 +351,7 @@ func scanHost(sc scanner) (*domain.Host, error) {
 		intervalMS   int64
 		timeoutMS    int64
 		ejectForMS   int64
+		guardianMode string
 		created      int64
 		updated      int64
 		algorithm    string
@@ -317,6 +364,7 @@ func scanHost(sc scanner) (*domain.Host, error) {
 		&h.HealthCheck.ExpectStatus,
 		&h.PassiveHealth.Enabled, &h.PassiveHealth.MaxFails, &ejectForMS,
 		&h.AccessLog.Enabled, &h.AccessLog.IncludeQuery,
+		&guardianMode, &h.Guardian.MaxURILength,
 		&created, &updated,
 	)
 	if err != nil {
@@ -335,6 +383,7 @@ func scanHost(sc scanner) (*domain.Host, error) {
 	h.HealthCheck.Interval = time.Duration(intervalMS) * time.Millisecond
 	h.HealthCheck.Timeout = time.Duration(timeoutMS) * time.Millisecond
 	h.PassiveHealth.EjectFor = time.Duration(ejectForMS) * time.Millisecond
+	h.Guardian.Mode = domain.GuardianMode(guardianMode)
 	h.CreatedAt = time.Unix(created, 0).UTC()
 	h.UpdatedAt = time.Unix(updated, 0).UTC()
 	return &h, nil

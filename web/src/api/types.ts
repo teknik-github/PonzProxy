@@ -58,6 +58,7 @@ export interface Host {
   healthCheck: HealthCheck
   passiveHealth: PassiveHealth
   accessLog: AccessLogSettings
+  guardian: Guardian
   createdAt: string
   updatedAt: string
 }
@@ -225,6 +226,7 @@ export interface HostInput {
     ejectForSeconds: number
   }
   accessLog: AccessLogSettings
+  guardian: Guardian
 }
 
 export interface CertificateInput {
@@ -409,4 +411,34 @@ export interface AlertStats {
 export interface AlertTestResult {
   delivered: boolean
   error?: string
+}
+
+/* -------------------------------------------------------------- guardian -- */
+
+/** Detect forwards the request and records the match, so an operator can watch
+ *  what would be blocked before enforcing anything. On a proxy a false
+ *  positive is a visible outage; a probe that slips through usually is not. */
+export type GuardianMode = 'off' | 'detect' | 'block'
+
+export type GuardianRule =
+  | 'path_traversal'
+  | 'sensitive_files'
+  | 'control_characters'
+  | 'scanner_agents'
+  | 'sql_injection'
+  | 'shell_injection'
+
+export interface Guardian {
+  mode: GuardianMode
+  rules: GuardianRule[] | null
+  maxUriLength: number
+}
+
+export interface GuardianRuleOption {
+  value: GuardianRule
+  label: string
+  description: string
+  /** False for rules that can match legitimate input and should be watched
+   *  in detect mode first. */
+  safeByDefault: boolean
 }

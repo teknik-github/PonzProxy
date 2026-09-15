@@ -5,6 +5,8 @@ import { api, ApiError } from "@/api/client"
 import type {
   AccessList,
   AlgorithmOption,
+  GuardianMode,
+  GuardianRuleOption,
   Certificate,
   Host,
   HostInput,
@@ -77,10 +79,12 @@ export function Hosts({
     onSidebarOpenHandled?.()
   }, [openFromSidebar, onSidebarOpenHandled])
   const [algorithms, setAlgorithms] = useState<AlgorithmOption[]>([])
+  const [guardianRules, setGuardianRules] = useState<GuardianRuleOption[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.listAlgorithms().then(setAlgorithms).catch(() => setAlgorithms([]))
+    api.listGuardianRules().then(setGuardianRules).catch(() => setGuardianRules([]))
   }, [])
 
   async function remove(host: Host) {
@@ -218,6 +222,7 @@ export function Hosts({
           algorithms={algorithms}
           certificates={certificates}
           accessLists={accessLists}
+          guardianRules={guardianRules}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
@@ -265,6 +270,7 @@ function toInput(host: Host | null): HostInput {
       },
       passiveHealth: { enabled: true, maxFails: 3, ejectForSeconds: 30 },
       accessLog: { enabled: false, includeQuery: false },
+      guardian: { mode: "off", rules: [], maxUriLength: 2048 },
     }
   }
   return {
@@ -304,6 +310,11 @@ function toInput(host: Host | null): HostInput {
       enabled: host.accessLog.enabled,
       includeQuery: host.accessLog.includeQuery,
     },
+    guardian: {
+      mode: host.guardian.mode,
+      rules: host.guardian.rules ?? [],
+      maxUriLength: host.guardian.maxUriLength,
+    },
   }
 }
 
@@ -312,6 +323,7 @@ function HostSheet({
   algorithms,
   certificates,
   accessLists,
+  guardianRules,
   onClose,
   onSaved,
 }: {
@@ -319,6 +331,7 @@ function HostSheet({
   algorithms: AlgorithmOption[]
   certificates: Certificate[]
   accessLists: AccessList[]
+  guardianRules: GuardianRuleOption[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -783,6 +796,103 @@ function HostSheet({
                   />
                 </FormField>
               </div>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Block exploits</h3>
+              <p className="text-muted-foreground text-xs">
+                Inspects each request for obvious attack patterns before it
+                reaches your servers. Start in <strong>detect</strong> and read
+                the access log for a while: refusing a real customer is a
+                visible outage, a probe getting through usually is not.
+              </p>
+            </div>
+
+            <FormField label="Mode" error={fieldError("guardian.mode")}>
+              <Select
+                value={input.guardian.mode}
+                onValueChange={(v) =>
+                  patch({ guardian: { ...input.guardian, mode: v as GuardianMode } })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Off — inspect nothing</SelectItem>
+                  <SelectItem value="detect">
+                    Detect — record matches, forward the request anyway
+                  </SelectItem>
+                  <SelectItem value="block">Block — refuse matched requests</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {input.guardian.mode !== "off" && (
+              <>
+                {fieldError("guardian.rules") && (
+                  <p className="text-destructive text-xs">{fieldError("guardian.rules")}</p>
+                )}
+                <div className="flex flex-col gap-3">
+                  {guardianRules.map((rule) => (
+                    <label key={rule.value} className="flex items-start gap-3 text-sm">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={(input.guardian.rules ?? []).includes(rule.value)}
+                        onCheckedChange={(v) =>
+                          patch({
+                            guardian: {
+                              ...input.guardian,
+                              rules:
+                                v === true
+                                  ? [...(input.guardian.rules ?? []), rule.value]
+                                  : (input.guardian.rules ?? []).filter(
+                                      (x) => x !== rule.value,
+                                    ),
+                            },
+                          })
+                        }
+                      />
+                      <span>
+                        <span className="font-medium">{rule.label}</span>
+                        {!rule.safeByDefault && (
+                          <Badge variant="secondary" className="ml-2">
+                            watch first
+                          </Badge>
+                        )}
+                        <span className="text-muted-foreground block text-xs">
+                          {rule.description}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <FormField
+                  label="Longest request target (characters)"
+                  hint="Anything longer is refused before it is scanned. 0 disables the check."
+                  error={fieldError("guardian.maxUriLength")}
+                >
+                  <Input
+                    type="number"
+                    min={0}
+                    max={65536}
+                    value={input.guardian.maxUriLength}
+                    onChange={(e) =>
+                      patch({
+                        guardian: {
+                          ...input.guardian,
+                          maxUriLength: Number(e.target.value),
+                        },
+                      })
+                    }
+                  />
+                </FormField>
+              </>
             )}
           </div>
 

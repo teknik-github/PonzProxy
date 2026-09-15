@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -462,5 +463,80 @@ func TestAccessLogRecordsFailures(t *testing.T) {
 	// The reason a request failed is the whole point of looking it up.
 	if got[0].Error == "" {
 		t.Error("the failure reason was not recorded")
+	}
+}
+
+// --------------------------------------------------------------- guardian ---
+
+func hostWithGuardian(t *testing.T, mode domain.GuardianMode, rules ...domain.GuardianRule) domain.Host {
+	t.Helper()
+	h := hostFor("api.example.com", domain.RoundRobin, backendServer(t, "a"))
+	h.Guardian = domain.Guardian{Mode: mode, Rules: rules, MaxURILength: 2048}
+	return h
+}
+
+func TestGuardianBlocksAnAttack(t *testing.T) {
+	e := testEngine(t, hostWithGuardian(t, domain.GuardianBlock, domain.RuleSensitiveFiles))
+
+	if got := request(t, e, "api.example.com", "/.env").StatusCode; got != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", got)
+	}
+	// The refusal must not say which rule fired: that hands a prober the
+	// shape of the filter.
+	resp := request(t, e, "api.example.com", "/.git/config")
+	body, _ := io.ReadAll(resp.Body)
+	if strings.Contains(strings.ToLower(string(body)), "sensitive") ||
+		strings.Contains(string(body), ".git") {
+		t.Errorf("the refusal described the rule: %q", body)
+	}
+}
+
+// TestGuardianDetectModeForwards is why detect exists: an operator must be
+// able to watch what would be blocked before enforcing anything.
+func TestGuardianDetectModeForwards(t *testing.T) {
+	var reached atomic.Int64
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	h := hostFor("api.example.com", domain.RoundRobin)
+	h.Upstreams = []domain.Upstream{{
+		ID: 1, HostID: 1, Scheme: "http",
+		Address: strings.TrimPrefix(backend.URL, "http://"), Weight: 1, Enabled: true,
+	}}
+	h.Guardian = domain.Guardian{
+		Mode:  domain.GuardianDetect,
+		Rules: []domain.GuardianRule{domain.RuleSensitiveFiles},
+	}
+	e := testEngine(t, h)
+
+	if got := request(t, e, "api.example.com", "/.env").StatusCode; got != http.StatusOK {
+		t.Fatalf("status = %d in detect mode, want the request forwarded", got)
+	}
+	if reached.Load() != 1 {
+		t.Error("detect mode did not forward the request to the upstream")
+	}
+}
+
+func TestGuardianOffInspectsNothing(t *testing.T) {
+	e := testEngine(t, hostWithGuardian(t, domain.GuardianOff, domain.RuleSensitiveFiles))
+	if got := request(t, e, "api.example.com", "/.env").StatusCode; got != http.StatusOK {
+		t.Errorf("status = %d with inspection off, want 200", got)
+	}
+}
+
+func TestGuardianLeavesOrdinaryTrafficAlone(t *testing.T) {
+	e := testEngine(t, hostWithGuardian(t, domain.GuardianBlock, domain.GuardianRules()...))
+
+	for _, path := range []string{
+		"/", "/api/v1/orders?page=2", "/products/shoes",
+		"/search?q=how+to+select+a+union+representative",
+		"/.well-known/acme-challenge/tok",
+	} {
+		if got := request(t, e, "api.example.com", path).StatusCode; got != http.StatusOK {
+			t.Errorf("%s was refused with %d", path, got)
+		}
 	}
 }

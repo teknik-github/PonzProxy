@@ -67,6 +67,10 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !e.inspectRequest(w, r, rt, start) {
+		return
+	}
+
 	if isWebSocketUpgrade(r) && !rt.host.WebSocketSupport {
 		e.finish(w, r, rt, start, http.StatusForbidden,
 			"WebSocket upgrades are not enabled for this host")

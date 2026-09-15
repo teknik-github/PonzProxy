@@ -27,6 +27,14 @@ type hostPayload struct {
 	HealthCheck      healthCheckPayload   `json:"healthCheck"`
 	PassiveHealth    passiveHealthPayload `json:"passiveHealth"`
 	AccessLog        accessLogPayload     `json:"accessLog"`
+	Guardian         guardianPayload      `json:"guardian"`
+}
+
+// guardianPayload is the per-host request inspection setting.
+type guardianPayload struct {
+	Mode         domain.GuardianMode   `json:"mode"`
+	Rules        []domain.GuardianRule `json:"rules"`
+	MaxURILength int                   `json:"maxUriLength"`
 }
 
 // accessLogPayload is the per-host switch for the searchable request log.
@@ -94,6 +102,11 @@ func (p hostPayload) toDomain() domain.Host {
 		AccessLog: domain.AccessLogSettings{
 			Enabled:      p.AccessLog.Enabled,
 			IncludeQuery: p.AccessLog.IncludeQuery,
+		},
+		Guardian: domain.Guardian{
+			Mode:         p.Guardian.Mode,
+			Rules:        p.Guardian.Rules,
+			MaxURILength: p.Guardian.MaxURILength,
 		},
 	}
 	for _, u := range p.Upstreams {
@@ -249,6 +262,40 @@ func (s *Server) handleListAlgorithms(w http.ResponseWriter, _ *http.Request) {
 		{domain.IPHash, "IP hash",
 			"Pins each client address to one upstream, giving sticky sessions without cookies."},
 	})
+}
+
+// handleListGuardianRules describes the rules from the server, so the form
+// explains what each one costs in false positives rather than leaving an
+// operator to guess from its name.
+func (s *Server) handleListGuardianRules(w http.ResponseWriter, _ *http.Request) {
+	type entry struct {
+		Value         domain.GuardianRule `json:"value"`
+		Label         string              `json:"label"`
+		Description   string              `json:"description"`
+		SafeByDefault bool                `json:"safeByDefault"`
+	}
+	described := map[domain.GuardianRule]struct{ label, detail string }{
+		domain.RulePathTraversal: {"Path traversal",
+			"Attempts to climb out of the web root, including encoded forms. Almost never a real request."},
+		domain.RuleSensitiveFiles: {"Sensitive files",
+			"Probes for .env, .git, SSH keys, database dumps and the like. Nothing should serve these."},
+		domain.RuleControlCharacters: {"Control characters",
+			"Null bytes and other control bytes in the path. No legitimate client sends them."},
+		domain.RuleScannerAgents: {"Scanner user agents",
+			"Tools that announce themselves, such as sqlmap and nikto. Stops the lazy, which is most of the noise."},
+		domain.RuleSQLInjection: {"SQL injection",
+			"SQL fragments in the path or query. Can match a search box, so watch it in detect mode first."},
+		domain.RuleShellInjection: {"Shell injection",
+			"Command chaining such as ;cat /etc/passwd. Can match legitimate input, so watch it first."},
+	}
+
+	out := make([]entry, 0, len(domain.GuardianRules()))
+	for _, r := range domain.GuardianRules() {
+		d := described[r]
+		out = append(out, entry{Value: r, Label: d.label, Description: d.detail,
+			SafeByDefault: r.SafeByDefault()})
+	}
+	writeJSON(w, s.logger, http.StatusOK, out)
 }
 
 func pathID(r *http.Request) (int64, error) {

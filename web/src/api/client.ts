@@ -12,6 +12,7 @@ import type {
   Certificate,
   CertificateInput,
   DnsProvider,
+  GuardianRuleOption,
   FieldError,
   Host,
   HostInput,
@@ -220,6 +221,8 @@ export const api = {
 
   deleteAccessList: (id: number) =>
     request<void>(`/api/access-lists/${id}`, { method: 'DELETE' }),
+
+  listGuardianRules: () => request<GuardianRuleOption[]>('/api/guardian-rules'),
 
   listAlgorithms: () => request<AlgorithmOption[]>('/api/algorithms'),
 

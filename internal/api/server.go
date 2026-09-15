@@ -213,6 +213,7 @@ func (s *Server) routes() http.Handler {
 	read.HandleFunc("GET /api/hosts", s.handleListHosts)
 	read.HandleFunc("GET /api/hosts/{id}", s.handleGetHost)
 	read.HandleFunc("GET /api/algorithms", s.handleListAlgorithms)
+	read.HandleFunc("GET /api/guardian-rules", s.handleListGuardianRules)
 	read.HandleFunc("GET /api/certificates", s.handleListCertificates)
 	read.HandleFunc("GET /api/dns-providers", s.handleListDNSProviders)
 	read.HandleFunc("GET /api/metrics/live", s.handleLiveSnapshot)
