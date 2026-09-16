@@ -11,6 +11,15 @@ Every released version has a matching container image and a git tag, so
 
 ## [Unreleased]
 
+### Fixed
+
+- `:latest` now follows the newest release rather than the newest commit. A
+  push to `main` and the version tag on that same commit are two separate CI
+  runs with different version stamps, so both moving `latest` left it with a
+  different digest from the release it was meant to be, reporting a commit sha
+  where the release number should have been. Pushes to `main` still publish
+  `:main` and `:sha-xxxxxxx`.
+
 ## [0.2.0] - 2026-09-16
 
 ### Upgrading
