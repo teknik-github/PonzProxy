@@ -1,0 +1,58 @@
+# Runs the published image. Nothing is built locally — `docker compose up -d`
+# pulls it from the GitHub Container Registry.
+#
+# This file is self-contained on purpose: you do not need a clone of the
+# repository to install ponzproxy, only this one file.
+#
+#   curl -O https://raw.githubusercontent.com/teknik-github/PonzProxy/main/docker-compose.yml
+#   docker compose up -d
+#   docker compose logs | grep -A3 "first account"
+#
+# To build from source instead — for development, or on an architecture with
+# no published image — clone the repository and swap the two blocks below.
+
+services:
+  ponzproxy:
+    image: ghcr.io/teknik-github/ponzproxy:${PONZ_VERSION:-latest}
+    # build:
+    #   context: .
+    #   dockerfile: deploy/Dockerfile
+    container_name: ponzproxy
+    restart: unless-stopped
+    ports:
+      # Override any of these in a .env file next to this one when the port is
+      # already taken, e.g. PONZ_CONSOLE_PORT=9090.
+      - "${PONZ_HTTP_PORT:-80}:80"
+      - "${PONZ_HTTPS_PORT:-443}:443"
+      # The console is bound to localhost. Reach it over a VPN or an SSH
+      # tunnel rather than publishing it to the internet: a password is all
+      # that stands in front of it.
+      - "127.0.0.1:${PONZ_CONSOLE_PORT:-8080}:8080"
+    volumes:
+      # Holds the SQLite database, the ACME account key and issued
+      # certificates. Back this up; everything else is reproducible.
+      - ponzproxy-data:/data
+    environment:
+      # Receives expiry warnings from the certificate authority.
+      PONZ_ACME_EMAIL: "${PONZ_ACME_EMAIL:-}"
+      PONZ_LOG_LEVEL: "${PONZ_LOG_LEVEL:-info}"
+      # Point at the staging CA while testing. Production issuance is rate
+      # limited per domain, and a failed experiment can lock you out for a week.
+      # PONZ_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory
+      #
+      # Set this ONLY when ponzproxy sits behind a proxy you control, such as
+      # a Cloudflare Tunnel. Any client can forge the header otherwise.
+      # PONZ_TRUSTED_PROXY_HEADER: CF-Connecting-IP
+    extra_hosts:
+      # Lets an upstream be addressed as host.docker.internal when the backend
+      # runs on the host rather than in a container. Inside the container
+      # 127.0.0.1 is the container itself, so a backend on the host is
+      # otherwise unreachable — on Linux this line is what makes it work.
+      # Backends in other containers are reached by service name instead.
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      # Required to bind 80 and 443 while running as a non-root user.
+      - NET_BIND_SERVICE
+
+volumes:
+  ponzproxy-data:

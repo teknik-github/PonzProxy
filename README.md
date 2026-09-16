@@ -26,15 +26,35 @@ make            # builds the dashboard and the binary into bin/ponzproxy
 On first start it creates an `admin` account and prints a generated password
 once. Open the console on <http://localhost:8080> and change it.
 
-With Docker — no build needed, the image is published for `linux/amd64` and
-`linux/arm64`:
+With Docker — no build, and no clone. One file is the whole installation; the
+image is published for `linux/amd64` and `linux/arm64`:
 
 ```sh
-docker compose -f deploy/docker-compose.yml up -d
-docker compose -f deploy/docker-compose.yml logs | grep -A3 "first account"
+curl -O https://raw.githubusercontent.com/teknik-github/PonzProxy/main/docker-compose.yml
+docker compose up -d
+docker compose logs | grep -A3 "first account"
 ```
 
-Or directly:
+That prints the generated admin password once. The console is then on
+<http://localhost:8080>, bound to localhost only.
+
+Settings go in a `.env` next to the compose file rather than in the file
+itself, so an upgrade can replace the compose file without losing them:
+
+```sh
+PONZ_VERSION=0.1.0        # pin the image; defaults to latest
+PONZ_HTTP_PORT=8081       # when 80, 443 or 8080 are already taken
+PONZ_HTTPS_PORT=8444
+PONZ_CONSOLE_PORT=9090
+PONZ_ACME_EMAIL=you@example.com
+```
+
+Backends running on the host itself — not in a container — are reached as
+`host.docker.internal:<port>`, and must be bound to more than `127.0.0.1` for
+the container to connect. Backends in other containers are reached by their
+service name.
+
+Or without compose:
 
 ```sh
 docker run -d --name ponzproxy \
@@ -44,9 +64,10 @@ docker run -d --name ponzproxy \
   ghcr.io/teknik-github/ponzproxy:latest
 ```
 
-Pin a version rather than `latest` for anything you care about:
-`ghcr.io/teknik-github/ponzproxy:0.1.0`. Every release tag has a matching
-image, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
+Pin a version rather than `latest` for anything you care about — `PONZ_VERSION`
+above, or `ghcr.io/teknik-github/ponzproxy:0.1.0` directly. Every release tag
+has a matching image, and [CHANGELOG.md](CHANGELOG.md) says what changed in
+each.
 
 ### If you lose the admin password
 
@@ -56,7 +77,7 @@ holding the data directory:
 ```sh
 ./bin/ponzproxy --reset-password admin
 # with Docker:
-docker compose -f deploy/docker-compose.yml exec ponzproxy ponzproxy --reset-password admin
+docker compose exec ponzproxy ponzproxy --reset-password admin
 ```
 
 It prints a freshly generated password on stdout — nothing else, so
