@@ -32,17 +32,19 @@ services:
       # Holds the SQLite database, the ACME account key and issued
       # certificates. Back this up; everything else is reproducible.
       - ponzproxy-data:/data
+    # Everything below is read from the .env beside this file. An unset or
+    # empty value falls back to the binary's own default, so this list never
+    # needs editing — see .env.example for what each one does.
     environment:
-      # Receives expiry warnings from the certificate authority.
       PONZ_ACME_EMAIL: "${PONZ_ACME_EMAIL:-}"
-      PONZ_LOG_LEVEL: "${PONZ_LOG_LEVEL:-info}"
-      # Point at the staging CA while testing. Production issuance is rate
-      # limited per domain, and a failed experiment can lock you out for a week.
-      # PONZ_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory
-      #
-      # Set this ONLY when ponzproxy sits behind a proxy you control, such as
-      # a Cloudflare Tunnel. Any client can forge the header otherwise.
-      # PONZ_TRUSTED_PROXY_HEADER: CF-Connecting-IP
+      PONZ_ACME_DIRECTORY: "${PONZ_ACME_DIRECTORY:-}"
+      PONZ_TRUSTED_PROXY_HEADER: "${PONZ_TRUSTED_PROXY_HEADER:-}"
+      PONZ_LOG_LEVEL: "${PONZ_LOG_LEVEL:-}"
+      PONZ_LOG_FORMAT: "${PONZ_LOG_FORMAT:-}"
+      PONZ_SESSION_TTL: "${PONZ_SESSION_TTL:-}"
+      PONZ_ACCESS_LOG_RETENTION: "${PONZ_ACCESS_LOG_RETENTION:-}"
+      PONZ_ACCESS_LOG_MAX_ROWS: "${PONZ_ACCESS_LOG_MAX_ROWS:-}"
+      PONZ_METRICS_RETENTION: "${PONZ_METRICS_RETENTION:-}"
     extra_hosts:
       # Lets an upstream be addressed as host.docker.internal when the backend
       # runs on the host rather than in a container. Inside the container

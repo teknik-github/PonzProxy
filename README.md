@@ -39,15 +39,16 @@ That prints the generated admin password once. The console is then on
 <http://localhost:8080>, bound to localhost only.
 
 Settings go in a `.env` next to the compose file rather than in the file
-itself, so an upgrade can replace the compose file without losing them:
+itself, so an upgrade can replace the compose file without losing them.
+[`.env.example`](.env.example) lists every setting with its default and what
+it is for:
 
 ```sh
-PONZ_VERSION=0.1.0        # pin the image; defaults to latest
-PONZ_HTTP_PORT=8081       # when 80, 443 or 8080 are already taken
-PONZ_HTTPS_PORT=8444
-PONZ_CONSOLE_PORT=9090
-PONZ_ACME_EMAIL=you@example.com
+curl -O https://raw.githubusercontent.com/teknik-github/PonzProxy/main/.env.example
+cp .env.example .env
 ```
+
+Everything in it is optional — an entry left out uses the default.
 
 Backends running on the host itself — not in a container — are reached as
 `host.docker.internal:<port>`, and must be bound to more than `127.0.0.1` for

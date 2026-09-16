@@ -17,8 +17,9 @@ Every released version has a matching container image and a git tag, so
   root and is now self-contained, so installing needs no clone: fetch that one
   file and `docker compose up -d`. It also declares `host.docker.internal`, so
   a backend running on the host rather than in a container is reachable on
-  Linux, and reads ports, version and ACME email from a `.env` beside it so an
-  upgrade can replace the compose file without losing local settings.
+  Linux. Every setting is read from a `.env` beside it, documented in the new
+  `.env.example`, so an upgrade can replace the compose file without losing
+  local configuration.
 - **Rolling share window** — the request-path diagram draws each backend's
   line weight from the last 30 seconds of traffic instead of the cumulative
   total since the proxy started. Switching a host from weighted round robin to
