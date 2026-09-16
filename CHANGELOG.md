@@ -11,6 +11,19 @@ Every released version has a matching container image and a git tag, so
 
 ## [Unreleased]
 
+### Fixed
+
+- **`install.sh` refused to upgrade an installation**, because it saw that
+  installation's own listeners as a port clash — the ports are in use
+  precisely because the thing being upgraded is using them. It now asks Docker
+  which ports the existing container publishes and treats those as its own. A
+  genuine clash is still refused.
+- **`install.sh --version` was silently ignored on a re-run.** The existing
+  `.env` is kept on an upgrade, which is right, but that meant someone
+  upgrading with `--version 0.3.0` saw "container is healthy" and walked away
+  still on the old image. The version key is now rewritten in place, leaving
+  every other line as the operator left it.
+
 ## [0.3.0] - 2026-09-16
 
 ### Upgrading

@@ -236,10 +236,40 @@ port_busy() {
 	fi
 }
 
+# owned_ports lists the host ports this installation's own container already
+# publishes.
+#
+# Without it, upgrading an installation reported its own listeners as a clash
+# and refused: the ports are "in use" precisely because the thing being
+# upgraded is using them. Docker is asked rather than the ports guessed from
+# .env, so a container still running an older set of ports is recognised too.
+owned_ports() {
+	[ "$_upgrade" = "1" ] || return 0
+	[ -f "$DIR/docker-compose.yml" ] || return 0
+
+	for _inside in 80 443 8080; do
+		_published=$($DOCKER compose --project-directory "$DIR" \
+			-f "$DIR/docker-compose.yml" port ponzproxy "$_inside" 2>/dev/null) || continue
+		[ -n "$_published" ] || continue
+		# "0.0.0.0:8180", or several lines when both stacks are bound.
+		# The host port is whatever follows the last colon of each.
+		printf '%s\n' "$_published" | while IFS= read -r _line; do
+			[ -n "$_line" ] && printf '%s ' "${_line##*:}"
+		done
+	done
+}
+
 check_ports() {
+	_owned="$(owned_ports)"
 	_clash=""
 	for pair in "HTTP:$HTTP_PORT" "HTTPS:$HTTPS_PORT" "console:$CONSOLE_PORT"; do
 		_name="${pair%%:*}"; _port="${pair##*:}"
+		# A port this installation already holds is not a clash; it is the
+		# thing being replaced. Matched in the shell rather than with grep,
+		# which this script otherwise does not need.
+		case " $_owned " in
+			*" $_port "*) continue ;;
+		esac
 		if port_busy "$_port"; then
 			_clash="$_clash  $_name port $_port is already in use\n"
 		fi
@@ -261,10 +291,50 @@ fetch() {
 	run curl -fsSL "$_url" -o "$_dest" || die "could not download $_url"
 }
 
+# env_has reports whether .env already sets a key to exactly this value.
+env_has() {
+	[ -f "$DIR/.env" ] || return 1
+	while IFS= read -r _line || [ -n "$_line" ]; do
+		[ "$_line" = "$1=$2" ] && return 0
+	done < "$DIR/.env"
+	return 1
+}
+
+# set_env_key rewrites one key in an existing .env, leaving everything else
+# byte for byte as the operator left it.
+set_env_key() {
+	_env="$DIR/.env"; _key="$1"; _value="$2"
+	if [ "$DRY_RUN" = "1" ]; then
+		printf '  %s$ set %s=%s in %s%s\n' "$DIM" "$_key" "$_value" "$_env" "$RST"
+		return 0
+	fi
+
+	_tmp="$_env.tmp.$$"
+	# Any existing line for this key is dropped, commented or not, and the
+	# new value appended — so a key that was only present as a comment is
+	# set rather than duplicated.
+	while IFS= read -r _line || [ -n "$_line" ]; do
+		case "$_line" in
+			"$_key"=*|"#$_key"=*) ;;
+			*) printf '%s\n' "$_line" ;;
+		esac
+	done < "$_env" > "$_tmp"
+	printf '%s=%s\n' "$_key" "$_value" >> "$_tmp"
+	chmod 600 "$_tmp"
+	mv "$_tmp" "$_env"
+}
+
 write_env() {
 	_env="$DIR/.env"
 	if [ -f "$_env" ]; then
 		ok "keeping your existing $_env"
+		# Except for a version the operator asked for on this run. Silently
+		# ignoring --version is how someone upgrades, sees "container is
+		# healthy", and walks away still on the old image.
+		if [ -n "$VERSION" ] && ! env_has "PONZ_VERSION" "$VERSION"; then
+			set_env_key "PONZ_VERSION" "$VERSION"
+			ok "pinned PONZ_VERSION=$VERSION"
+		fi
 		return 0
 	fi
 	if [ "$DRY_RUN" = "1" ]; then
@@ -353,6 +423,10 @@ main() {
 	step "Checking Docker"
 	install_docker
 
+	# Known before the port check, which needs it: see owned_ports.
+	_upgrade="0"
+	[ -f "$DIR/.env" ] && _upgrade="1"
+
 	step "Checking ports"
 	check_ports
 
@@ -369,9 +443,6 @@ main() {
 	if [ "$DRY_RUN" = "0" ]; then
 		[ -w "$DIR" ] || die "$DIR is not writable by this user."
 	fi
-
-	_upgrade="0"
-	[ -f "$DIR/.env" ] && _upgrade="1"
 
 	fetch "$REPO_RAW/docker-compose.yml" "$DIR/docker-compose.yml"
 	fetch "$REPO_RAW/.env.example" "$DIR/.env.example"
