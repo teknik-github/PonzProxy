@@ -39,6 +39,9 @@ func (c *Collector) Run(ctx context.Context, flushEvery, retention time.Duration
 			return
 		case <-sample.C:
 			c.sampleRates()
+			// Read once here rather than inside sampleShares, so the
+			// lock is not held across a call into the proxy engine.
+			c.sampleShares(c.poolInfo())
 		case <-flush.C:
 			c.flush(ctx)
 		case <-prune.C:

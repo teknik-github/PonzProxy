@@ -117,6 +117,9 @@ type Collector struct {
 
 	mu    sync.RWMutex
 	hosts map[int64]*hostState
+	// shares holds each backend's rolling request count, advanced by the
+	// same ticker as the rates above. See share.go.
+	shares map[shareKey]*shareWindowState
 	// totals is the combined rate across every host, computed alongside the
 	// per-host rates so the two can never disagree.
 	totals domain.TrafficSnapshot
@@ -130,7 +133,16 @@ func New(repo domain.MetricsRepository, logger *slog.Logger) *Collector {
 		logger:    logger.With("component", "metrics"),
 		startedAt: time.Now(),
 		hosts:     make(map[int64]*hostState),
+		shares:    make(map[shareKey]*shareWindowState),
 	}
+}
+
+// poolInfo reads the live pools, or nil when no provider is wired yet.
+func (c *Collector) poolInfo() []PoolInfo {
+	if c.pools == nil {
+		return nil
+	}
+	return c.pools.MetricsPools()
 }
 
 // SetPoolProvider wires in the source of live backend state.

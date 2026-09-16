@@ -26,6 +26,8 @@ export function Detail({ model, selection, onClear }: Props) {
   // has already stopped drawing it.
   if (!host) return null
 
+  const windowSeconds = model.shareWindowSeconds
+
   if (selection.kind === "upstream") {
     const upstream = host.upstreams.find((u) => u.key === selection.key)
     if (!upstream) return null
@@ -49,6 +51,10 @@ export function Detail({ model, selection, onClear }: Props) {
               label: "share of host traffic",
               value: `${Math.round(upstream.share * 100)}%`,
             },
+            {
+              label: `requests in the last ${windowSeconds}s`,
+              value: count(upstream.windowRequests),
+            },
             { label: "requests served", value: count(upstream.totalRequests) },
             { label: "open connections", value: count(upstream.activeConns) },
             {
@@ -60,9 +66,11 @@ export function Detail({ model, selection, onClear }: Props) {
           ]}
         />
         <p className="text-muted-foreground text-xs">
-          {host.basis === "requests"
-            ? "Share is measured from requests this backend has actually served since the proxy started."
-            : "Nothing has been served yet, so share is the configured weight rather than a measurement."}
+          {host.basis === "window"
+            ? `Share is measured from the requests this backend served in the last ${windowSeconds} seconds, so it follows a change to the host's algorithm within about that long.`
+            : host.basis === "requests"
+              ? `Nothing has arrived in the last ${windowSeconds} seconds, so share is the split over everything served since the proxy started.`
+              : "Nothing has been served yet, so share is the configured weight rather than a measurement."}
         </p>
       </Panel>
     )

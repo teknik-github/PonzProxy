@@ -16,7 +16,7 @@ const TRAIL: { letter: string; label: string }[] = [
  *  It is deliberately not collapsible. An operator reads this screen once a
  *  month, under pressure, and a legend hidden behind a disclosure is a legend
  *  nobody finds. */
-export function Legend() {
+export function Legend({ windowSeconds }: { windowSeconds: number }) {
   return (
     <div className="flex flex-col gap-3 border-t px-4 py-4 text-xs sm:px-6">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -41,8 +41,10 @@ export function Legend() {
             </svg>
           }
         >
-          Line weight is share of traffic. An even split and a 5:2:1 weighting
-          are meant to look different without reading a number.
+          Line weight is each backend's share of the last {windowSeconds}{" "}
+          seconds, so it follows a change to the algorithm rather than
+          averaging it away. An even split and a 5:2:1 weighting are meant to
+          look different without reading a number.
         </Item>
 
         <Item

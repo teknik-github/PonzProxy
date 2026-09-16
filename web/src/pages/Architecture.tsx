@@ -43,7 +43,7 @@ export function Architecture({
   const width = useElementWidth(frame)
   const [selection, setSelection] = useState<Selection | null>(null)
 
-  const measured = model.hosts.some((h) => h.basis === "requests")
+  const measured = model.hosts.some((h) => h.basis !== "weight")
 
   return (
     <div className="px-4 lg:px-6">
@@ -83,7 +83,7 @@ export function Architecture({
               />
             </div>
 
-            <Legend />
+            <Legend windowSeconds={model.shareWindowSeconds} />
             <Detail
               model={model}
               selection={selection}

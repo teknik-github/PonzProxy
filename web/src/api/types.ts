@@ -124,6 +124,10 @@ export interface UpstreamSnapshot {
   weight: number
   activeConns: number
   totalRequests: number
+  /** Requests served in the last `Snapshot.shareWindowSeconds`. This is what
+   *  the split is drawn from: cumulative totals average over the whole uptime
+   *  and so keep showing an old weighting for minutes after it changed. */
+  windowRequests: number
   meanLatencyMs: number
   lastError?: string
 }
@@ -159,6 +163,9 @@ export interface Snapshot {
   hosts: HostSnapshot[] | null
   totals: TrafficSnapshot
   system: SystemSnapshot
+  /** The span `UpstreamSnapshot.windowRequests` covers. Reported by the server
+   *  so the label and the measurement cannot drift apart. */
+  shareWindowSeconds: number
 }
 
 /* -------------------------------------------------------------- history -- */

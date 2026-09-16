@@ -13,6 +13,16 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Rolling share window** — the request-path diagram draws each backend's
+  line weight from the last 30 seconds of traffic instead of the cumulative
+  total since the proxy started. Switching a host from weighted round robin to
+  round robin took effect on the very next request but kept drawing the old
+  weighting for many minutes, because a cumulative average is dragged by
+  however much history sits behind it; the one screen that should answer "did
+  my change take?" was the slowest thing in the system to admit it had. The
+  counts are sampled once a second from totals the balancer already keeps, so
+  the request path is untouched. Measured: 62.5/25/12.5 reaches 33/33/33 in
+  exactly 30 seconds, while the cumulative figure had moved 6 points in 40.
 - **`--reset-password <user>`** — recovers an account whose password is lost.
   The console could change a password but never recover one, so forgetting the
   last administrator's password meant editing SQLite by hand. It prints a

@@ -66,16 +66,19 @@ func (c *Collector) sampleRates() {
 // once, returns the same rates rather than splitting one interval between
 // them.
 func (c *Collector) Snapshot() domain.Snapshot {
-	var pools []PoolInfo
-	if c.pools != nil {
-		pools = c.pools.MetricsPools()
-	}
+	pools := c.poolInfo()
 	byID := make(map[int64]PoolInfo, len(pools))
 	for _, p := range pools {
 		byID[p.HostID] = p
 	}
 
 	c.mu.RLock()
+	// Upstreams is a fresh slice per call, so filling in the rolling counts
+	// here mutates nobody else's view. byID shares the same backing arrays,
+	// so doing it once over pools covers both paths below.
+	for _, p := range pools {
+		c.applyShares(p.HostID, p.Upstreams)
+	}
 	hosts := make([]domain.HostSnapshot, 0, len(c.hosts))
 	seen := make(map[int64]struct{}, len(c.hosts))
 
@@ -123,10 +126,11 @@ func (c *Collector) Snapshot() domain.Snapshot {
 	}
 
 	return domain.Snapshot{
-		Timestamp: time.Now().UTC(),
-		Hosts:     hosts,
-		Totals:    combined,
-		System:    c.system(pools),
+		Timestamp:          time.Now().UTC(),
+		Hosts:              hosts,
+		Totals:             combined,
+		System:             c.system(pools),
+		ShareWindowSeconds: int(shareWindow / time.Second),
 	}
 }
 

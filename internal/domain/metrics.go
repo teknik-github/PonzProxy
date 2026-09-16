@@ -68,6 +68,10 @@ type Snapshot struct {
 	Hosts     []HostSnapshot  `json:"hosts"`
 	Totals    TrafficSnapshot `json:"totals"`
 	System    SystemSnapshot  `json:"system"`
+	// ShareWindowSeconds is the span UpstreamSnapshot.WindowRequests covers.
+	// The UI reports it rather than assuming a number, so the label and the
+	// measurement cannot drift apart.
+	ShareWindowSeconds int `json:"shareWindowSeconds"`
 }
 
 type HostSnapshot struct {
@@ -96,9 +100,15 @@ type UpstreamSnapshot struct {
 	// LeastConnections selects on.
 	ActiveConns int64 `json:"activeConns"`
 	// TotalRequests is cumulative since process start.
-	TotalRequests uint64  `json:"totalRequests"`
-	MeanLatencyMS float64 `json:"meanLatencyMs"`
-	LastError     string  `json:"lastError,omitempty"`
+	TotalRequests uint64 `json:"totalRequests"`
+	// WindowRequests is how many of those arrived in the last
+	// Snapshot.ShareWindowSeconds. Cumulative totals answer "how has this
+	// pool behaved", which is not the same question as "where is traffic
+	// going now" — and after an algorithm change the two disagree for as
+	// long as the history is heavier than the present.
+	WindowRequests uint64  `json:"windowRequests"`
+	MeanLatencyMS  float64 `json:"meanLatencyMs"`
+	LastError      string  `json:"lastError,omitempty"`
 }
 
 type TrafficSnapshot struct {

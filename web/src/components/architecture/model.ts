@@ -17,10 +17,16 @@ import type {
  *  looks like from here. */
 export type UpstreamState = "up" | "down" | "ejected" | "paused" | "unknown"
 
-/** Where an upstream's share came from. A proxy that has served nothing has no
- *  measured split, and drawing one anyway would be a lie; on a cold start the
- *  diagram falls back to the configured weights and says so. */
-export type ShareBasis = "requests" | "weight"
+/** Where an upstream's share came from, in the order they are preferred.
+ *
+ *  `window` is recent traffic and is what the diagram wants: it follows a
+ *  configuration change within seconds. `requests` is the cumulative total
+ *  since the proxy started, used when the window is empty — an idle pool has
+ *  no split happening right now, and its history is more informative than
+ *  nothing. `weight` is the last resort on a proxy that has served nothing at
+ *  all; drawing a measured split there would be a lie, so the UI says which
+ *  one it is showing. */
+export type ShareBasis = "window" | "requests" | "weight"
 
 /** One word per state, shared by the diagram, its tooltips and the detail
  *  panel so the same backend is never called two different things. */
@@ -42,6 +48,9 @@ export interface UpstreamView {
   activeConns: number
   meanLatencyMs: number
   totalRequests: number
+  /** Requests in the rolling window, which is what `share` is normally
+   *  measured from. */
+  windowRequests: number
   /** Plain sentence naming why this backend is not serving, or undefined when
    *  it is. This is what the diagram must surface on hover and on click. */
   problem: string | undefined
@@ -83,6 +92,11 @@ export interface HostView {
   live: boolean
 }
 
+/** Used only until the first snapshot arrives, and when talking to a server
+ *  too old to report the window. It must stay in step with metrics.shareWindow
+ *  on the Go side; every live render uses the server's own number instead. */
+const DEFAULT_SHARE_WINDOW = 30
+
 export interface TopologyModel {
   hosts: HostView[]
   totals: TrafficSnapshot
@@ -91,6 +105,9 @@ export interface TopologyModel {
   unmatchedRps: number
   upstreamsUp: number
   upstreamsTotal: number
+  /** How many seconds of traffic the measured split covers, as reported by the
+   *  server, so the wording on screen always matches the measurement. */
+  shareWindowSeconds: number
   /** Everything on the diagram that is not serving, already phrased, and
    *  carrying the identifiers the page needs to select it. */
   problems: {
@@ -168,6 +185,7 @@ export function buildTopology(
     unmatchedRps: unmatched?.traffic.requestsPerSec ?? 0,
     upstreamsUp: snapshot?.system.upstreamsUp ?? 0,
     upstreamsTotal: snapshot?.system.upstreamsTotal ?? 0,
+    shareWindowSeconds: snapshot?.shareWindowSeconds || DEFAULT_SHARE_WINDOW,
     problems,
   }
 }
@@ -190,6 +208,7 @@ function hostView(
         activeConns: 0,
         meanLatencyMs: 0,
         totalRequests: 0,
+        windowRequests: 0,
         problem: u.enabled
           ? "No live data for this backend. The host is not in the feed."
           : "Switched off in the host's configuration.",
@@ -244,6 +263,7 @@ function liveUpstream(u: UpstreamSnapshot): UpstreamView {
     activeConns: u.activeConns,
     meanLatencyMs: u.meanLatencyMs,
     totalRequests: u.totalRequests,
+    windowRequests: u.windowRequests ?? 0,
     problem: problemOf(u),
   }
 }
@@ -276,10 +296,21 @@ function problemOf(u: UpstreamSnapshot): string | undefined {
 }
 
 /** shareOut fills in each upstream's share in place and reports what it was
- *  measured from. Requests win when there are any; weights are the honest
- *  stand-in on a proxy that has not served anything yet. */
+ *  measured from, preferring the most recent evidence it has.
+ *
+ *  The window comes first because it is the only one that answers the question
+ *  an operator asks of this screen: change a host from weighted round robin to
+ *  round robin and the new split is drawn within seconds, where a cumulative
+ *  average would keep drawing the old weighting for as long as the history
+ *  outweighs the present. */
 function shareOut(views: UpstreamView[]): ShareBasis {
-  if (views.length === 0) return "requests"
+  if (views.length === 0) return "window"
+
+  const recent = views.reduce((sum, u) => sum + u.windowRequests, 0)
+  if (recent > 0) {
+    for (const u of views) u.share = u.windowRequests / recent
+    return "window"
+  }
 
   const served = views.reduce((sum, u) => sum + u.totalRequests, 0)
   if (served > 0) {
