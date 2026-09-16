@@ -68,7 +68,7 @@ docker run -d --name ponzproxy \
 `latest` is the newest **release**, not the newest commit — a push to `main`
 publishes `:main` and `:sha-xxxxxxx`, never `:latest`. Pin a version anyway for
 anything you care about: `PONZ_VERSION` above, or
-`ghcr.io/teknik-github/ponzproxy:0.2.0` directly. Every release tag has a
+`ghcr.io/teknik-github/ponzproxy:0.2.1` directly. Every release tag has a
 matching image, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
 
 ### If you lose the admin password

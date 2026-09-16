@@ -7,9 +7,11 @@ an upgrade needs action from you, the **minor** number when something is added,
 and the **patch** number when something is only fixed.
 
 Every released version has a matching container image and a git tag, so
-`ghcr.io/teknik-github/ponzproxy:0.2.0` is exactly the code at `v0.2.0`.
+`ghcr.io/teknik-github/ponzproxy:0.2.1` is exactly the code at `v0.2.1`.
 
 ## [Unreleased]
+
+## [0.2.1] - 2026-09-16
 
 ### Fixed
 
@@ -139,6 +141,7 @@ First public release.
   per-upstream share of traffic, and historical charts.
 - **Login rate limiting** — five failures from an address, then a pause.
 
-[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/teknik-github/PonzProxy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/teknik-github/PonzProxy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/teknik-github/PonzProxy/releases/tag/v0.1.0
