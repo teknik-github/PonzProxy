@@ -79,6 +79,13 @@ type HostSnapshot struct {
 	Name      string             `json:"name"`
 	Traffic   TrafficSnapshot    `json:"traffic"`
 	Upstreams []UpstreamSnapshot `json:"upstreams"`
+	// LimitedRequests is how many requests exceeded this host's traffic
+	// limits since the process started, and BlockedRequests how many of
+	// those were refused rather than only observed. In detect mode the
+	// second is zero and the first is the estimate an operator is deciding
+	// on, which is why both are reported rather than one net figure.
+	LimitedRequests uint64 `json:"limitedRequests"`
+	BlockedRequests uint64 `json:"blockedRequests"`
 }
 
 // UpstreamSnapshot exposes the per-backend runtime state the balancer keeps,

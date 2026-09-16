@@ -13,11 +13,49 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Traffic limits** — a per-host bound on what one client address may ask for:
+  a sustained request rate with burst headroom, a cap on requests in flight,
+  and a maximum request body. Off, detect and block, the same three modes as
+  request inspection and for the same reason — a false positive on a proxy is
+  a visible outage, so an operator can watch what *would* be refused before
+  refusing anything. Addresses or ranges can be exempted, because switching
+  limits on otherwise takes out your own monitoring first: it is the most
+  regular traffic a host receives.
+
+  This is **not** DDoS protection and is not described as such anywhere in the
+  console. A volumetric attack saturates the uplink before a packet reaches
+  this process; only upstream scrubbing helps there. What this covers is one
+  client, or a script, asking for more than the backends can serve.
+
+  It runs before the access list so a client inventing credentials cannot buy
+  a bcrypt comparison per request, and costs 361ns and one allocation for a
+  host that uses it, nothing at all for a host that does not.
+- **Traffic used** — how much each host carried over the last day, week or
+  month, with in, out, total and share. Read from the samples that already
+  back the historical charts, so it stops where retention does — and says so
+  rather than returning a small number someone might compare against a bill.
+- **Excel and PDF reports** of that page, covering the selected period. The
+  PDF opens with a bar chart of traffic by host. Both are written against the
+  standard library — an .xlsx is a zip of XML, and a PDF of a table in a
+  standard font is a few kilobytes of text — so the project still has four
+  direct dependencies. The spreadsheet stores figures as numbers rather than
+  as text that merely looks like one, so its columns can be summed.
+- **A sidebar with groups.** Twelve rows in one list had outgrown being
+  scannable; they are now under Monitor, Routing, Protection and Settings,
+  each foldable and remembered. A group is never folded while the screen you
+  are on is inside it, and a problem inside a folded group still shows.
 - **`install.sh`** — one command sets up a machine from nothing, installing
   Docker Engine first when it is missing. Re-running it upgrades in place and
   keeps the existing `.env` and data volume. `--dry-run` prints every command
   it would run and changes nothing, which is the least a script asking to be
   piped into a shell can offer.
+
+### Fixed
+
+- A health-check test could fail under load, because it counted probes on the
+  server side and a request already on the wire can be counted after the probe
+  loop has exited. It now measures what it meant to: that no *new* probe starts
+  after a host is removed.
 
 ### Changed
 

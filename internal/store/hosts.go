@@ -21,7 +21,8 @@ const hostColumns = `
 	hc_expect_status, ph_enabled, ph_max_fails, ph_eject_for_ms,
 	log_enabled, log_include_query, guardian_mode, guardian_max_uri,
 	cache_enabled, cache_ttl_ms, cache_max_ttl_ms, cache_max_object_bytes,
-	cache_max_bytes, created_at, updated_at`
+	cache_max_bytes, limit_mode, limit_rps, limit_burst, limit_max_conns,
+	limit_max_body, created_at, updated_at`
 
 func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -58,6 +59,9 @@ func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	if err := r.attachGuardianRules(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachLimitExempt(ctx, byID); err != nil {
+		return nil, err
+	}
 	if err := r.attachCachePaths(ctx, byID); err != nil {
 		return nil, err
 	}
@@ -82,6 +86,9 @@ func (r *hostRepo) Get(ctx context.Context, id int64) (*domain.Host, error) {
 	if err := r.attachGuardianRules(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachLimitExempt(ctx, byID); err != nil {
+		return nil, err
+	}
 	if err := r.attachCachePaths(ctx, byID); err != nil {
 		return nil, err
 	}
@@ -102,8 +109,10 @@ func (r *hostRepo) Create(ctx context.Context, h *domain.Host) error {
 				ph_enabled, ph_max_fails, ph_eject_for_ms,
 				log_enabled, log_include_query, guardian_mode, guardian_max_uri,
 				cache_enabled, cache_ttl_ms, cache_max_ttl_ms,
-				cache_max_object_bytes, cache_max_bytes, created_at, updated_at
-			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				cache_max_object_bytes, cache_max_bytes,
+				limit_mode, limit_rps, limit_burst, limit_max_conns, limit_max_body,
+				created_at, updated_at
+			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			hostInsertArgs(h)...)
 		if err != nil {
 			return translateErr(err)
@@ -130,7 +139,9 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 				log_enabled = ?, log_include_query = ?,
 				guardian_mode = ?, guardian_max_uri = ?,
 				cache_enabled = ?, cache_ttl_ms = ?, cache_max_ttl_ms = ?,
-				cache_max_object_bytes = ?, cache_max_bytes = ?, updated_at = ?
+				cache_max_object_bytes = ?, cache_max_bytes = ?,
+				limit_mode = ?, limit_rps = ?, limit_burst = ?,
+				limit_max_conns = ?, limit_max_body = ?, updated_at = ?
 			WHERE id = ?`,
 			hostUpdateArgs(h)...)
 		if err != nil {
@@ -157,6 +168,10 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM host_cache_paths WHERE host_id = ?`, h.ID); err != nil {
+			return translateErr(err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM host_limit_exempt WHERE host_id = ?`, h.ID); err != nil {
 			return translateErr(err)
 		}
 		return writeHostChildren(ctx, tx, h)
@@ -236,6 +251,39 @@ func (r *hostRepo) attachGuardianRules(ctx context.Context, byID map[int64]*doma
 	return translateErr(rows.Err())
 }
 
+// attachLimitExempt loads each host's exemptions and parses them once, so the
+// request path never parses a CIDR. Normalize is what builds the parsed form,
+// which is why it runs here rather than being left to the caller.
+func (r *hostRepo) attachLimitExempt(ctx context.Context, byID map[int64]*domain.Host) error {
+	if len(byID) == 0 {
+		return nil
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT host_id, cidr FROM host_limit_exempt ORDER BY host_id, position`)
+	if err != nil {
+		return translateErr(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var hostID int64
+		var cidr string
+		if err := rows.Scan(&hostID, &cidr); err != nil {
+			return err
+		}
+		if h, ok := byID[hostID]; ok {
+			h.TrafficLimits.Exempt = append(h.TrafficLimits.Exempt, cidr)
+		}
+	}
+	if err := translateErr(rows.Err()); err != nil {
+		return err
+	}
+	for _, h := range byID {
+		h.TrafficLimits.Normalize()
+	}
+	return nil
+}
+
 func (r *hostRepo) attachCachePaths(ctx context.Context, byID map[int64]*domain.Host) error {
 	if len(byID) == 0 {
 		return nil
@@ -309,6 +357,13 @@ func writeHostChildren(ctx context.Context, tx *sql.Tx, h *domain.Host) error {
 			return translateErr(err)
 		}
 	}
+	for i, c := range h.TrafficLimits.Exempt {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO host_limit_exempt (host_id, cidr, position) VALUES (?,?,?)`,
+			h.ID, c, i); err != nil {
+			return translateErr(err)
+		}
+	}
 	for i := range h.Upstreams {
 		u := &h.Upstreams[i]
 		u.HostID = h.ID
@@ -359,6 +414,8 @@ func hostInsertArgs(h *domain.Host) []any {
 		string(h.Guardian.Mode), h.Guardian.MaxURILength,
 		h.Cache.Enabled, h.Cache.TTL.Milliseconds(), h.Cache.MaxTTL.Milliseconds(),
 		h.Cache.MaxObjectBytes, h.Cache.MaxBytes,
+		string(h.TrafficLimits.Mode), h.TrafficLimits.RequestsPerSecond,
+		h.TrafficLimits.Burst, h.TrafficLimits.MaxConcurrent, h.TrafficLimits.MaxBodyBytes,
 		h.CreatedAt.Unix(), h.UpdatedAt.Unix(),
 	}
 }
@@ -378,6 +435,8 @@ func hostUpdateArgs(h *domain.Host) []any {
 		string(h.Guardian.Mode), h.Guardian.MaxURILength,
 		h.Cache.Enabled, h.Cache.TTL.Milliseconds(), h.Cache.MaxTTL.Milliseconds(),
 		h.Cache.MaxObjectBytes, h.Cache.MaxBytes,
+		string(h.TrafficLimits.Mode), h.TrafficLimits.RequestsPerSecond,
+		h.TrafficLimits.Burst, h.TrafficLimits.MaxConcurrent, h.TrafficLimits.MaxBodyBytes,
 		h.UpdatedAt.Unix(), h.ID,
 	}
 }
@@ -403,6 +462,7 @@ func scanHost(sc scanner) (*domain.Host, error) {
 		guardianMode  string
 		cacheTTLMS    int64
 		cacheMaxTTLMS int64
+		limitMode     string
 		created       int64
 		updated       int64
 		algorithm     string
@@ -418,6 +478,8 @@ func scanHost(sc scanner) (*domain.Host, error) {
 		&guardianMode, &h.Guardian.MaxURILength,
 		&h.Cache.Enabled, &cacheTTLMS, &cacheMaxTTLMS,
 		&h.Cache.MaxObjectBytes, &h.Cache.MaxBytes,
+		&limitMode, &h.TrafficLimits.RequestsPerSecond, &h.TrafficLimits.Burst,
+		&h.TrafficLimits.MaxConcurrent, &h.TrafficLimits.MaxBodyBytes,
 		&created, &updated,
 	)
 	if err != nil {
@@ -436,7 +498,8 @@ func scanHost(sc scanner) (*domain.Host, error) {
 	h.HealthCheck.Interval = time.Duration(intervalMS) * time.Millisecond
 	h.HealthCheck.Timeout = time.Duration(timeoutMS) * time.Millisecond
 	h.PassiveHealth.EjectFor = time.Duration(ejectForMS) * time.Millisecond
-	h.Guardian.Mode = domain.GuardianMode(guardianMode)
+	h.Guardian.Mode = domain.Mode(guardianMode)
+	h.TrafficLimits.Mode = domain.Mode(limitMode)
 	h.Cache.TTL = time.Duration(cacheTTLMS) * time.Millisecond
 	h.Cache.MaxTTL = time.Duration(cacheMaxTTLMS) * time.Millisecond
 	h.CreatedAt = time.Unix(created, 0).UTC()

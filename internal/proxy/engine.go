@@ -14,6 +14,7 @@ import (
 	"github.com/ponzproxy/ponzproxy/internal/cache"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 	"github.com/ponzproxy/ponzproxy/internal/health"
+	"github.com/ponzproxy/ponzproxy/internal/limiter"
 	"github.com/ponzproxy/ponzproxy/internal/metrics"
 )
 
@@ -105,6 +106,10 @@ type Engine struct {
 
 	// caches holds the per-host static asset cache.
 	caches *cache.Store
+
+	// limiter holds per-client budgets for hosts with traffic limits on.
+	// Hosts with limits off never touch it.
+	limiter *limiter.Limiter
 }
 
 // NewEngine builds the data plane. Call Reload before serving to install a
@@ -124,6 +129,7 @@ func NewEngine(opts Options) *Engine {
 	e.reverseProxy = e.buildReverseProxy()
 	e.authCache = newAuthCache()
 	e.caches = cache.NewStore()
+	e.limiter = limiter.New()
 	return e
 }
 
@@ -174,6 +180,15 @@ func (e *Engine) Reload(cfg Config) {
 		}
 	}
 	e.forgetCaches(cached)
+
+	// A host whose operator just switched limits off must not keep its
+	// clients' spent budgets, or turning limits back on would apply a
+	// window from before the change.
+	for _, r := range table.routes {
+		if !r.host.TrafficLimits.Enabled() {
+			e.limiter.Forget(r.host.ID)
+		}
+	}
 
 	e.logger.Info("configuration reloaded",
 		"hosts", len(table.routes),
@@ -257,4 +272,5 @@ func (e *Engine) transportFor(skipVerify bool) *http.Transport {
 func (e *Engine) Close() {
 	e.verifying.CloseIdleConnections()
 	e.insecure.CloseIdleConnections()
+	e.limiter.Close()
 }

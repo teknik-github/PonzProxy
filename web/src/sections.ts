@@ -12,6 +12,8 @@ export type Section =
   | "alerts"
   | "users"
   | "certificates"
+  | "traffic-limits"
+  | "usage"
   | "account"
 
 export const SECTION_TITLES: Record<Section, string> = {
@@ -24,5 +26,7 @@ export const SECTION_TITLES: Record<Section, string> = {
   alerts: "Alerts",
   users: "Users",
   certificates: "Certificates",
+  "traffic-limits": "Traffic limits",
+  usage: "Traffic used",
   account: "Account",
 }

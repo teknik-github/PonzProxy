@@ -29,6 +29,10 @@ func (f *fakeRepo) Query(context.Context, domain.MetricsQuery) ([]domain.Sample,
 	return nil, nil
 }
 
+func (f *fakeRepo) Usage(context.Context, time.Time, time.Time) ([]domain.UsageRow, error) {
+	return nil, nil
+}
+
 func (f *fakeRepo) Prune(_ context.Context, before time.Time) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

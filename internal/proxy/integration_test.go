@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/base64"
 	"io"
 	"log/slog"
@@ -539,4 +540,8 @@ func TestGuardianLeavesOrdinaryTrafficAlone(t *testing.T) {
 			t.Errorf("%s was refused with %d", path, got)
 		}
 	}
+}
+
+func (nopMetricsRepo) Usage(context.Context, time.Time, time.Time) ([]domain.UsageRow, error) {
+	return nil, nil
 }

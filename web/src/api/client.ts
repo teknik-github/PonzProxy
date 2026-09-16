@@ -20,6 +20,7 @@ import type {
   Role,
   Series,
   Snapshot,
+  UsageReport,
   User,
   UserInput,
 } from './types'
@@ -85,6 +86,61 @@ let onUnauthorized: (() => void) | null = null
 
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn
+}
+
+/** download fetches a file and hands it to the browser.
+ *
+ *  It cannot be a plain link: the session token is sent as a header, and an
+ *  <a href> has no way to set one. Fetching into a blob keeps the token out of
+ *  the URL, where it would end up in the server log and in the browser's
+ *  history.
+ *
+ *  The server names the file; the fallback only applies if the header is
+ *  missing, which would mean something other than ponzproxy answered. */
+async function download(path: string, fallbackName: string): Promise<void> {
+  const headers = new Headers()
+  const token = session.get()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  let response: Response
+  try {
+    response = await fetch(path, { headers })
+  } catch {
+    throw new ApiError(0, 'Cannot reach ponzproxy. Check that the service is running.')
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      session.clear()
+      onUnauthorized?.()
+    }
+    const text = await response.text()
+    const shaped = safeParse(text) as { error?: string } | null
+    throw new ApiError(
+      response.status,
+      shaped?.error ?? `Download failed with status ${response.status}.`,
+    )
+  }
+
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const match = /filename="([^"]+)"/.exec(disposition)
+  const name = match?.[1] ?? fallbackName
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = name
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } finally {
+    // Revoking immediately can cancel the save in some browsers, so this
+    // waits a tick; not revoking at all leaks the blob for the life of the
+    // tab, and a report can be several megabytes.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  }
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -267,5 +323,24 @@ export const api = {
     })
     if (params.hostId) query.set('hostId', String(params.hostId))
     return request<Series>(`/api/metrics/history?${query.toString()}`)
+  },
+
+  usage: (params: { from: Date; to: Date }) => {
+    const query = new URLSearchParams({
+      from: params.from.toISOString(),
+      to: params.to.toISOString(),
+    })
+    return request<UsageReport>(`/api/metrics/usage?${query.toString()}`)
+  },
+
+  downloadUsage: (params: { from: Date; to: Date; format: 'xlsx' | 'pdf' }) => {
+    const query = new URLSearchParams({
+      from: params.from.toISOString(),
+      to: params.to.toISOString(),
+    })
+    return download(
+      `/api/metrics/usage.${params.format}?${query.toString()}`,
+      `ponzproxy-traffic.${params.format}`,
+    )
   },
 }

@@ -2,30 +2,19 @@ package domain
 
 import "strings"
 
-// GuardianMode decides what happens when a request matches a rule.
-//
-// Detect exists because on a reverse proxy a false positive is an outage: a
-// legitimate request refused is visible to a customer, while a probe that slips
-// through usually is not. An operator should be able to watch what *would* be
-// blocked for a week before enforcing anything.
-type GuardianMode string
+// GuardianMode is Mode under the name the guardian's own code and the API
+// payload use. It is an alias rather than a distinct type because the two
+// really are the same choice with the same consequences — see Mode.
+type GuardianMode = Mode
 
 const (
 	// GuardianOff does no inspection at all.
-	GuardianOff GuardianMode = "off"
+	GuardianOff = ModeOff
 	// GuardianDetect records matches and forwards the request anyway.
-	GuardianDetect GuardianMode = "detect"
+	GuardianDetect = ModeDetect
 	// GuardianBlock refuses matched requests with 403.
-	GuardianBlock GuardianMode = "block"
+	GuardianBlock = ModeBlock
 )
-
-func (m GuardianMode) Valid() bool {
-	switch m {
-	case GuardianOff, GuardianDetect, GuardianBlock:
-		return true
-	}
-	return false
-}
 
 // GuardianRule names one family of checks. They are separate switches because
 // their false-positive risk differs by an order of magnitude: refusing a path
@@ -120,10 +109,7 @@ func (g *Guardian) Has(r GuardianRule) bool {
 
 // Normalize fills in defaults and canonicalises operator input.
 func (g *Guardian) Normalize() {
-	g.Mode = GuardianMode(strings.ToLower(strings.TrimSpace(string(g.Mode))))
-	if g.Mode == "" {
-		g.Mode = GuardianOff
-	}
+	g.Mode = NormalizeMode(g.Mode)
 	if g.MaxURILength < 0 {
 		g.MaxURILength = 0
 	}

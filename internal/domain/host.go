@@ -84,6 +84,9 @@ type Host struct {
 	// Cache serves cacheable upstream responses for the paths an operator
 	// lists from memory instead of the backend. Off by default; see Cache.
 	Cache Cache `json:"cache"`
+	// TrafficLimits bounds what one client address may ask of this host.
+	// Off by default; see TrafficLimits.
+	TrafficLimits TrafficLimits `json:"trafficLimits"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -234,6 +237,7 @@ func (h *Host) Normalize() {
 
 	h.Guardian.Normalize()
 	h.Cache.Normalize()
+	h.TrafficLimits.Normalize()
 
 	ph := &h.PassiveHealth
 	if ph.MaxFails <= 0 {
@@ -315,6 +319,13 @@ func (h *Host) Validate() error {
 		var cacheErr *ValidationError
 		if errors.As(err, &cacheErr) {
 			v.Fields = append(v.Fields, cacheErr.Fields...)
+		}
+	}
+
+	if err := h.TrafficLimits.Validate(); err != nil {
+		var limitErr *ValidationError
+		if errors.As(err, &limitErr) {
+			v.Fields = append(v.Fields, limitErr.Fields...)
 		}
 	}
 

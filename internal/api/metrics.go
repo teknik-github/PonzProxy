@@ -154,3 +154,98 @@ func toSeries(samples []domain.Sample, resolution domain.Resolution) []seriesPoi
 func (s *Server) handleLiveSnapshot(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, s.logger, http.StatusOK, s.opts.Collector.Snapshot())
 }
+
+// usageRow is one host's traffic over the reported window.
+type usageRow struct {
+	HostID   int64  `json:"hostId"`
+	Name     string `json:"name"`
+	Requests uint64 `json:"requests"`
+	BytesIn  uint64 `json:"bytesIn"`
+	BytesOut uint64 `json:"bytesOut"`
+	Total    uint64 `json:"totalBytes"`
+}
+
+type usageResponse struct {
+	From time.Time  `json:"from"`
+	To   time.Time  `json:"to"`
+	Rows []usageRow `json:"rows"`
+	// Truncated says the window reaches back further than the samples do,
+	// so the figures cover less time than was asked for. An operator
+	// comparing a month against their hosting bill needs to be told that
+	// rather than left to wonder why the number is low.
+	Truncated bool `json:"truncated"`
+	// RetentionDays is how far back samples are kept at all.
+	RetentionDays int `json:"retentionDays"`
+}
+
+// handleMetricsUsage reports how much traffic each host carried over a window.
+//
+// Query parameters: from and to as RFC3339, defaulting to the last 30 days.
+// The figures come from the same samples as the historical charts, so they
+// stop where retention does.
+func (s *Server) handleMetricsUsage(w http.ResponseWriter, r *http.Request) {
+	from, to, err := usageWindow(r)
+	if err != nil {
+		writeError(w, s.logger, err)
+		return
+	}
+	report, err := s.usageReport(r, from, to)
+	if err != nil {
+		writeError(w, s.logger, err)
+		return
+	}
+	writeJSON(w, s.logger, http.StatusOK, report)
+}
+
+// usageReport gathers the figures the JSON, spreadsheet and PDF views all
+// render. Keeping it in one place is what stops a download from disagreeing
+// with the screen it was started from.
+func (s *Server) usageReport(r *http.Request, from, to time.Time) (usageResponse, error) {
+	rows, err := s.opts.Metrics.Usage(r.Context(), from, to)
+	if err != nil {
+		return usageResponse{}, err
+	}
+
+	// Names come from configuration rather than from the samples, which
+	// only carry ids. A host deleted since the traffic happened still has
+	// usage worth reporting, so it is labelled rather than dropped.
+	names := map[int64]string{}
+	if hosts, err := s.opts.Hosts.List(r.Context()); err == nil {
+		for _, h := range hosts {
+			names[h.ID] = h.Name
+		}
+	}
+
+	out := make([]usageRow, 0, len(rows))
+	for _, u := range rows {
+		name := names[u.HostID]
+		if name == "" {
+			name = usageLabel(u.HostID)
+		}
+		out = append(out, usageRow{
+			HostID:   u.HostID,
+			Name:     name,
+			Requests: u.Requests,
+			BytesIn:  u.BytesIn,
+			BytesOut: u.BytesOut,
+			Total:    u.BytesIn + u.BytesOut,
+		})
+	}
+
+	retention := s.opts.MetricsRetention
+	return usageResponse{
+		From:          from,
+		To:            to,
+		Rows:          out,
+		Truncated:     retention > 0 && to.Sub(from) > retention,
+		RetentionDays: int(retention.Hours() / 24),
+	}, nil
+}
+
+// usageLabel names a bucket that no longer has a host behind it.
+func usageLabel(hostID int64) string {
+	if hostID == 0 {
+		return "(unmatched)"
+	}
+	return "(deleted host " + strconv.FormatInt(hostID, 10) + ")"
+}

@@ -6,6 +6,7 @@ import type {
   AccessList,
   AlgorithmOption,
   GuardianMode,
+  Mode,
   GuardianRuleOption,
   Certificate,
   Host,
@@ -283,6 +284,17 @@ function toInput(host: Host | null): HostInput {
         maxObjectBytes: 1048576,
         maxBytes: 67108864,
       },
+      // Off, like the guardian and the cache. The numbers are what the
+      // operator gets the moment they switch it on, sitting well above
+      // ordinary browsing: a page load is a burst of a dozen requests.
+      trafficLimits: {
+        mode: "off",
+        requestsPerSecond: 50,
+        burst: 100,
+        maxConcurrent: 40,
+        maxBodyBytes: 33554432,
+        exempt: [],
+      },
     }
   }
   return {
@@ -334,6 +346,14 @@ function toInput(host: Host | null): HostInput {
       maxTtlSeconds: nanosToSeconds(host.cache.maxTtl),
       maxObjectBytes: host.cache.maxObjectBytes,
       maxBytes: host.cache.maxBytes,
+    },
+    trafficLimits: {
+      mode: host.trafficLimits.mode,
+      requestsPerSecond: host.trafficLimits.requestsPerSecond,
+      burst: host.trafficLimits.burst,
+      maxConcurrent: host.trafficLimits.maxConcurrent,
+      maxBodyBytes: host.trafficLimits.maxBodyBytes,
+      exempt: host.trafficLimits.exempt ?? [],
     },
   }
 }
@@ -1017,6 +1037,154 @@ function HostSheet({
                     />
                   </FormField>
                 </div>
+              </>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Traffic limits</h3>
+              <p className="text-muted-foreground text-xs">
+                Bounds what one client address may ask of this host. This is
+                not DDoS protection — a volumetric attack saturates the link
+                before it reaches the proxy — but it does stop one client, or a
+                script, from asking for more than your backends can serve.
+                Start in <strong>detect</strong>.
+              </p>
+            </div>
+
+            <FormField label="Mode" error={fieldError("trafficLimits.mode")}>
+              <Select
+                value={input.trafficLimits.mode}
+                onValueChange={(v) =>
+                  patch({ trafficLimits: { ...input.trafficLimits, mode: v as Mode } })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Off — no limits</SelectItem>
+                  <SelectItem value="detect">
+                    Detect — record what would be refused, serve it anyway
+                  </SelectItem>
+                  <SelectItem value="block">
+                    Block — answer 429, or 413 for an oversized body
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {input.trafficLimits.mode !== "off" && (
+              <>
+                {/* The single most common way to break a site with this
+                    feature, so it is a warning and not a footnote. */}
+                <p className="text-muted-foreground border-l-2 border-amber-500 pl-3 text-xs">
+                  Limits count per client address. Behind Cloudflare, a load
+                  balancer or NAT, every visitor arrives from the same address
+                  unless <code>PONZ_TRUSTED_PROXY_HEADER</code> is set — and
+                  then one limit is shared by everyone.
+                </p>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    label="Requests per second"
+                    hint="Sustained rate per client. 0 leaves the rate unlimited."
+                    error={fieldError("trafficLimits.requestsPerSecond")}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      value={input.trafficLimits.requestsPerSecond}
+                      onChange={(e) =>
+                        patch({
+                          trafficLimits: {
+                            ...input.trafficLimits,
+                            requestsPerSecond: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Burst"
+                    hint="How far above the rate a client may go momentarily. A page load is a burst of a dozen requests."
+                    error={fieldError("trafficLimits.burst")}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      value={input.trafficLimits.burst}
+                      onChange={(e) =>
+                        patch({
+                          trafficLimits: { ...input.trafficLimits, burst: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Requests in flight"
+                    hint="Concurrent requests from one address. 0 is unlimited."
+                    error={fieldError("trafficLimits.maxConcurrent")}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      value={input.trafficLimits.maxConcurrent}
+                      onChange={(e) =>
+                        patch({
+                          trafficLimits: {
+                            ...input.trafficLimits,
+                            maxConcurrent: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Largest request body (bytes)"
+                    hint="0 allows any size. Refused with 413 before the body is read."
+                    error={fieldError("trafficLimits.maxBodyBytes")}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      value={input.trafficLimits.maxBodyBytes}
+                      onChange={(e) =>
+                        patch({
+                          trafficLimits: {
+                            ...input.trafficLimits,
+                            maxBodyBytes: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                </div>
+
+                <FormField
+                  label="Never limit these addresses"
+                  hint="Your monitoring, an office range, a health checker. Addresses or CIDR ranges, comma separated."
+                  error={fieldError("trafficLimits.exempt")}
+                >
+                  <Input
+                    placeholder="10.0.0.0/8, 203.0.113.9"
+                    value={(input.trafficLimits.exempt ?? []).join(", ")}
+                    onChange={(e) =>
+                      patch({
+                        trafficLimits: {
+                          ...input.trafficLimits,
+                          exempt: e.target.value
+                            .split(",")
+                            .map((c) => c.trim())
+                            .filter(Boolean),
+                        },
+                      })
+                    }
+                  />
+                </FormField>
               </>
             )}
           </div>

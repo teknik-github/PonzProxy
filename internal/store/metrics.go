@@ -118,3 +118,40 @@ func (r *metricsRepo) Prune(ctx context.Context, before time.Time) (int64, error
 	}
 	return res.RowsAffected()
 }
+
+// Usage totals each host's traffic over a window.
+//
+// It groups by host rather than by time, which is the whole difference from
+// Query: a bandwidth report answers "which sites are costing me traffic", and
+// bucketing that by minute would make the caller add it up again.
+//
+// Nothing older than PONZ_METRICS_RETENTION exists to be counted, so a window
+// wider than the retention silently reports only the part that survives. The
+// API says so rather than leaving the operator to infer it from a small number.
+func (r *metricsRepo) Usage(ctx context.Context, from, to time.Time) ([]domain.UsageRow, error) {
+	if to.Before(from) {
+		return nil, fmt.Errorf("usage window ends before it starts")
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT host_id, SUM(requests), SUM(bytes_in), SUM(bytes_out)
+		FROM metrics_samples
+		WHERE ts >= ? AND ts <= ?
+		GROUP BY host_id
+		ORDER BY SUM(bytes_in) + SUM(bytes_out) DESC, host_id`,
+		from.Unix(), to.Unix())
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.UsageRow, 0, 16)
+	for rows.Next() {
+		var u domain.UsageRow
+		if err := rows.Scan(&u.HostID, &u.Requests, &u.BytesIn, &u.BytesOut); err != nil {
+			return nil, translateErr(err)
+		}
+		out = append(out, u)
+	}
+	return out, translateErr(rows.Err())
+}

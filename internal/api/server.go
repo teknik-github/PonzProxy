@@ -65,6 +65,11 @@ type Options struct {
 	// LiveInterval is how often the WebSocket feed pushes a snapshot.
 	LiveInterval time.Duration
 
+	// MetricsRetention is how far back samples are kept. The usage report
+	// says so, because a bandwidth figure for a window longer than this
+	// covers less time than it claims to.
+	MetricsRetention time.Duration
+
 	// PasswordCost is the bcrypt cost for this server. Zero selects
 	// DefaultPasswordCost; tests lower it so a suite that logs in
 	// repeatedly does not spend minutes hashing.
@@ -218,6 +223,9 @@ func (s *Server) routes() http.Handler {
 	read.HandleFunc("GET /api/dns-providers", s.handleListDNSProviders)
 	read.HandleFunc("GET /api/metrics/live", s.handleLiveSnapshot)
 	read.HandleFunc("GET /api/metrics/history", s.handleMetricsHistory)
+	read.HandleFunc("GET /api/metrics/usage", s.handleMetricsUsage)
+	read.HandleFunc("GET /api/metrics/usage.xlsx", s.handleUsageXLSX)
+	read.HandleFunc("GET /api/metrics/usage.pdf", s.handleUsagePDF)
 	read.Handle("GET /api/ws", s.hub)
 	read.HandleFunc("GET /api/access-lists", accessLists.HandleList)
 	read.HandleFunc("GET /api/access-lists/{id}", accessLists.HandleGet)

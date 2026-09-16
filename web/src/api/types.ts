@@ -42,6 +42,24 @@ export interface PassiveHealth {
   ejectFor: number
 }
 
+/** Mode is shared by the guardian and the traffic limiter. `detect` records
+ *  what would have been refused and lets it through, which is the only safe
+ *  way to try a refusal on traffic you did not generate. */
+export type Mode = 'off' | 'detect' | 'block'
+
+/** TrafficLimits bounds what one client address may ask of a host. It is not
+ *  DDoS protection: a volumetric attack saturates the uplink before it reaches
+ *  the proxy. It covers the thing that actually takes small sites down, which
+ *  is one client asking for more than the backends can serve. */
+export interface TrafficLimits {
+  mode: Mode
+  requestsPerSecond: number
+  burst: number
+  maxConcurrent: number
+  maxBodyBytes: number
+  exempt: string[] | null
+}
+
 export interface Host {
   id: number
   name: string
@@ -60,6 +78,7 @@ export interface Host {
   accessLog: AccessLogSettings
   guardian: Guardian
   cache: Cache
+  trafficLimits: TrafficLimits
   createdAt: string
   updatedAt: string
 }
@@ -146,6 +165,11 @@ export interface HostSnapshot {
   name: string
   traffic: TrafficSnapshot
   upstreams: UpstreamSnapshot[] | null
+  /** Requests that exceeded this host's traffic limits since the proxy
+   *  started, and how many of those were actually refused. In detect mode the
+   *  second is zero and the first is the estimate being judged. */
+  limitedRequests: number
+  blockedRequests: number
 }
 
 export interface SystemSnapshot {
@@ -166,6 +190,30 @@ export interface Snapshot {
   /** The span `UpstreamSnapshot.windowRequests` covers. Reported by the server
    *  so the label and the measurement cannot drift apart. */
   shareWindowSeconds: number
+}
+
+/* ---------------------------------------------------------------- usage -- */
+
+/** One host's traffic over the reported window. Grouped by host rather than by
+ *  time: "what did this site cost me" is a different question from "what did
+ *  the last hour look like". */
+export interface UsageRow {
+  hostId: number
+  name: string
+  requests: number
+  bytesIn: number
+  bytesOut: number
+  totalBytes: number
+}
+
+export interface UsageReport {
+  from: string
+  to: string
+  rows: UsageRow[] | null
+  /** The window reaches further back than the samples do, so the figures
+   *  cover less time than was asked for. */
+  truncated: boolean
+  retentionDays: number
 }
 
 /* -------------------------------------------------------------- history -- */
@@ -243,6 +291,7 @@ export interface HostInput {
     maxObjectBytes: number
     maxBytes: number
   }
+  trafficLimits: TrafficLimits
 }
 
 export interface CertificateInput {

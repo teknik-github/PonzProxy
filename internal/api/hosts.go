@@ -29,6 +29,19 @@ type hostPayload struct {
 	AccessLog        accessLogPayload     `json:"accessLog"`
 	Guardian         guardianPayload      `json:"guardian"`
 	Cache            cachePayload         `json:"cache"`
+	TrafficLimits    limitsPayload        `json:"trafficLimits"`
+}
+
+// limitsPayload is the per-host traffic limit. It mirrors domain.TrafficLimits
+// one for one: there is no unit conversion to do, and a payload that differs
+// from the type it becomes is a place for the two to drift apart.
+type limitsPayload struct {
+	Mode              domain.Mode `json:"mode"`
+	RequestsPerSecond int         `json:"requestsPerSecond"`
+	Burst             int         `json:"burst"`
+	MaxConcurrent     int         `json:"maxConcurrent"`
+	MaxBodyBytes      int64       `json:"maxBodyBytes"`
+	Exempt            []string    `json:"exempt"`
 }
 
 // cachePayload is the per-host static asset cache. Durations are seconds, as
@@ -127,6 +140,14 @@ func (p hostPayload) toDomain() domain.Host {
 			MaxTTL:         secondsToDuration(p.Cache.MaxTTLSeconds),
 			MaxObjectBytes: p.Cache.MaxObjectBytes,
 			MaxBytes:       p.Cache.MaxBytes,
+		},
+		TrafficLimits: domain.TrafficLimits{
+			Mode:              p.TrafficLimits.Mode,
+			RequestsPerSecond: p.TrafficLimits.RequestsPerSecond,
+			Burst:             p.TrafficLimits.Burst,
+			MaxConcurrent:     p.TrafficLimits.MaxConcurrent,
+			MaxBodyBytes:      p.TrafficLimits.MaxBodyBytes,
+			Exempt:            p.TrafficLimits.Exempt,
 		},
 	}
 	for _, u := range p.Upstreams {

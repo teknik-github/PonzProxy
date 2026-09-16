@@ -1,19 +1,25 @@
 import {
   IconActivity,
+  IconAdjustments,
   IconArrowsExchange2,
   IconBell,
   IconCertificate,
+  IconChartBar,
+  IconEye,
   IconFileText,
+  IconGauge,
+  IconRoute,
   IconRouteAltLeft,
   IconServer2,
   IconSitemap,
+  IconShieldHalf,
   IconShieldLock,
   IconUserCog,
   IconUsersGroup,
 } from "@tabler/icons-react"
 
 import { NavHosts } from "@/components/nav-hosts"
-import { NavMain, type NavItem } from "@/components/nav-main"
+import { NavMain, type NavGroup } from "@/components/nav-main"
 import { NavStatus } from "@/components/nav-status"
 import { NavUser } from "@/components/nav-user"
 import {
@@ -63,38 +69,81 @@ export function AppSidebar({
     (c) => c.installed && c.expiresInDays < 14,
   ).length
 
-  const items: NavItem[] = [
-    { id: "traffic", title: "Traffic", icon: IconActivity },
-    { id: "architecture", title: "Request path", icon: IconSitemap },
+  // How many hosts have limits switched on at all. A count rather than a
+  // warning: limits being on is the intended state, not a problem.
+  const limited = hosts.filter((h) => h.trafficLimits.mode !== "off").length
+
+  // Four groups rather than one list of twelve rows. The split follows the
+  // questions an operator arrives with — what is happening, what do I serve,
+  // who can reach it, who runs this — because that is what they can answer
+  // before they have found the screen.
+  const groups: NavGroup[] = [
     {
-      id: "hosts",
-      title: "Hosts",
-      icon: IconServer2,
-      badge: hosts.length > 0 ? String(hosts.length) : undefined,
+      id: "monitor",
+      title: "Monitor",
+      icon: IconEye,
+      items: [
+        { id: "traffic", title: "Traffic", icon: IconActivity },
+        { id: "architecture", title: "Request path", icon: IconSitemap },
+        { id: "usage", title: "Traffic used", icon: IconChartBar },
+        { id: "access-log", title: "Access log", icon: IconFileText },
+        { id: "alerts", title: "Alerts", icon: IconBell },
+      ],
     },
-    { id: "redirects", title: "Redirects", icon: IconArrowsExchange2 },
     {
-      id: "access-lists",
-      title: "Access lists",
-      icon: IconShieldLock,
-      badge: accessLists.length > 0 ? String(accessLists.length) : undefined,
+      id: "routing",
+      title: "Routing",
+      icon: IconRoute,
+      items: [
+        {
+          id: "hosts",
+          title: "Hosts",
+          icon: IconServer2,
+          badge: hosts.length > 0 ? String(hosts.length) : undefined,
+        },
+        { id: "redirects", title: "Redirects", icon: IconArrowsExchange2 },
+        {
+          id: "certificates",
+          title: "Certificates",
+          icon: IconCertificate,
+          badge:
+            expiring > 0
+              ? `${expiring} expiring`
+              : certificates.length > 0
+                ? String(certificates.length)
+                : undefined,
+          alarm: expiring > 0,
+        },
+      ],
     },
-    { id: "access-log", title: "Access log", icon: IconFileText },
     {
-      id: "certificates",
-      title: "Certificates",
-      icon: IconCertificate,
-      badge:
-        expiring > 0
-          ? `${expiring} expiring`
-          : certificates.length > 0
-            ? String(certificates.length)
-            : undefined,
-      alarm: expiring > 0,
+      id: "protection",
+      title: "Protection",
+      icon: IconShieldHalf,
+      items: [
+        {
+          id: "access-lists",
+          title: "Access lists",
+          icon: IconShieldLock,
+          badge: accessLists.length > 0 ? String(accessLists.length) : undefined,
+        },
+        {
+          id: "traffic-limits",
+          title: "Traffic limits",
+          icon: IconGauge,
+          badge: limited > 0 ? String(limited) : undefined,
+        },
+      ],
     },
-    { id: "alerts", title: "Alerts", icon: IconBell },
-    { id: "users", title: "Users", icon: IconUsersGroup },
-    { id: "account", title: "Account", icon: IconUserCog },
+    {
+      id: "settings",
+      title: "Settings",
+      icon: IconAdjustments,
+      items: [
+        { id: "users", title: "Users", icon: IconUsersGroup },
+        { id: "account", title: "Account", icon: IconUserCog },
+      ],
+    },
   ]
 
   return (
@@ -128,7 +177,7 @@ export function AppSidebar({
 
       <SidebarContent>
         <NavMain
-          items={items}
+          groups={groups}
           active={section}
           onSelect={onNavigate}
           onAddHost={onAddHost}

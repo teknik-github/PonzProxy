@@ -28,6 +28,12 @@ type counters struct {
 	latSum   atomic.Uint64 // milliseconds
 	latMax   atomic.Uint64
 	active   atomic.Int64
+	// limited counts requests that exceeded a traffic limit, and blocked
+	// how many of those were actually refused. They are separate because
+	// detect mode's entire purpose is the gap between the two: an operator
+	// needs to see what enforcement would have cost before enabling it.
+	limited atomic.Uint64
+	blocked atomic.Uint64
 }
 
 // totals is a plain-value reading of counters, used as a baseline for deltas.
@@ -183,6 +189,16 @@ func (c *Collector) Record(r Result) {
 	ms := uint64(r.Duration.Milliseconds())
 	st.counters.latSum.Add(ms)
 	storeMax(&st.counters.latMax, ms)
+}
+
+// RecordLimited notes a request that exceeded a host's traffic limits.
+// blocked says whether it was actually refused or merely observed.
+func (c *Collector) RecordLimited(hostID int64, blocked bool) {
+	st := c.state(hostID)
+	st.counters.limited.Add(1)
+	if blocked {
+		st.counters.blocked.Add(1)
+	}
 }
 
 // RequestStarted and RequestFinished bracket a request so the dashboard can

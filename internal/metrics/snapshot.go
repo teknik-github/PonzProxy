@@ -90,10 +90,12 @@ func (c *Collector) Snapshot() domain.Snapshot {
 			name = unmatchedName(hostID)
 		}
 		hosts = append(hosts, domain.HostSnapshot{
-			HostID:    hostID,
-			Name:      name,
-			Traffic:   st.live,
-			Upstreams: info.Upstreams,
+			HostID:          hostID,
+			Name:            name,
+			Traffic:         st.live,
+			Upstreams:       info.Upstreams,
+			LimitedRequests: st.counters.limited.Load(),
+			BlockedRequests: st.counters.blocked.Load(),
 		})
 	}
 	combined := c.totals

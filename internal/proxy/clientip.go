@@ -48,3 +48,12 @@ func remoteIP(remoteAddr string) string {
 	}
 	return remoteAddr
 }
+
+// clientAddr is clientIP parsed. Traffic limits key on the address itself
+// rather than on its text, so the parse happens once here instead of inside
+// the limiter on every request. A nil result means the address could not be
+// parsed, which callers must treat as "cannot be limited" rather than as a
+// reason to refuse.
+func (e *Engine) clientAddr(r *http.Request) net.IP {
+	return net.ParseIP(e.clientIP(r))
+}

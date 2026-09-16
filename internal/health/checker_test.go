@@ -201,6 +201,13 @@ func TestSyncStartsStopsAndLeavesUnchangedTargetsAlone(t *testing.T) {
 
 	// Removing the target must stop probing entirely.
 	c.Sync(nil)
+
+	// The counter is incremented by the test server, so a probe already on
+	// the wire when Sync cancelled it can still be counted after the loop
+	// has exited. Waiting before taking the baseline lets that one land.
+	// The invariant is that no *new* probe starts, not that an in-flight
+	// request is unsent — under load this test failed on the difference.
+	time.Sleep(60 * time.Millisecond)
 	settled := probes.Load()
 	time.Sleep(60 * time.Millisecond)
 	if probes.Load() != settled {

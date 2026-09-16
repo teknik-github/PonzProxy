@@ -96,6 +96,17 @@ type MetricsQuery struct {
 	Resolution Resolution
 }
 
+// UsageRow is one host's totals over a window, for the bandwidth report.
+// Unlike a Sample it is grouped by host rather than by time: "how much did
+// this site cost me this month" and "what did the last hour look like" are
+// different questions and want different shapes.
+type UsageRow struct {
+	HostID   int64
+	Requests uint64
+	BytesIn  uint64
+	BytesOut uint64
+}
+
 // MetricsRepository persists the rollups that back the historical charts.
 type MetricsRepository interface {
 	// WriteSamples appends one flush interval's worth of samples.
@@ -103,6 +114,8 @@ type MetricsRepository interface {
 	// Query returns samples bucketed at the requested resolution, ordered
 	// by time ascending.
 	Query(ctx context.Context, q MetricsQuery) ([]Sample, error)
+	// Usage totals traffic per host over a window, heaviest first.
+	Usage(ctx context.Context, from, to time.Time) ([]UsageRow, error)
 	// Prune deletes samples older than the cutoff and reports how many rows
 	// were removed.
 	Prune(ctx context.Context, before time.Time) (int64, error)

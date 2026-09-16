@@ -18,6 +18,8 @@ import { Hosts } from "@/pages/Hosts"
 import { Redirects } from "@/pages/Redirects"
 import { SignIn } from "@/pages/SignIn"
 import { Traffic } from "@/pages/Traffic"
+import { TrafficLimits } from "@/pages/TrafficLimits"
+import { Usage } from "@/pages/Usage"
 import { Users } from "@/pages/Users"
 import type { Section } from "@/sections"
 
@@ -154,6 +156,20 @@ export function App() {
                   onChanged={refresh}
                 />
               )}
+              {section === "traffic-limits" && (
+                <TrafficLimits
+                  hosts={hosts}
+                  snapshot={snapshot}
+                  canEdit={canEdit}
+                  onEditHost={(h) => {
+                    // The limits live on the host, so editing one means
+                    // opening the host sheet rather than duplicating the form.
+                    setHostToOpen(h)
+                    setSection("hosts")
+                  }}
+                />
+              )}
+              {section === "usage" && <Usage />}
               {section === "alerts" && <Alerts canEdit={canEdit} />}
               {section === "users" && <Users canEdit={canEdit} />}
               {section === "account" && <Account />}

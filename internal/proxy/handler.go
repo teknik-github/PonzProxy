@@ -61,6 +61,16 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if e.redirectToHTTPS(w, r, rt) {
 		return
 	}
+
+	// Before the access list on purpose: basic auth compares a bcrypt hash,
+	// so a client inventing credentials could otherwise buy a thousand
+	// bcrypt comparisons a second from one connection.
+	allowed, release := e.enforceLimits(w, r, rt, start)
+	defer release()
+	if !allowed {
+		return
+	}
+
 	// After the HTTPS redirect on purpose: a host that forces TLS must never
 	// have basic auth credentials prompted for, or sent, in the clear.
 	if !e.enforceAccess(w, r, rt, start) {
