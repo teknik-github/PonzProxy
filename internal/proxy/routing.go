@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/ponzproxy/ponzproxy/internal/balancer"
@@ -17,9 +18,42 @@ import (
 type route struct {
 	host domain.Host
 	pool *balancer.Pool
+	// locations are this host's path prefixes and their own pools, longest
+	// path first so the first match is the right one. A request matching
+	// none of them is served by pool above.
+	locations []*location
 	// access is resolved when the table is built, so the request path never
 	// looks a list up or takes a lock to read one.
 	access *domain.AccessList
+}
+
+// location pairs one path prefix with the pool that serves it.
+type location struct {
+	config domain.Location
+	pool   *balancer.Pool
+}
+
+// pick returns the location serving a path, or nil for the host's own pool.
+//
+// Locations are ordered longest path first when the table is built, so the
+// first match is the most specific one and the scan stops there. A host
+// without locations — which is every host until someone adds one — never
+// enters the loop at all.
+func (r *route) pick(path string) *location {
+	for _, l := range r.locations {
+		if l.config.Matches(path) {
+			return l
+		}
+	}
+	return nil
+}
+
+// poolFor returns the pool serving a path, and the location it came from.
+func (r *route) poolFor(path string) (*balancer.Pool, *location) {
+	if l := r.pick(path); l != nil {
+		return l.pool, l
+	}
+	return r.pool, nil
 }
 
 // routingTable resolves a request's Host header to a route.
@@ -56,6 +90,24 @@ func buildRoutingTable(cfg Config, prev *routingTable) *routingTable {
 
 	for _, h := range cfg.Hosts {
 		r := &route{host: h, pool: balancer.NewPool(h.ID, h.Algorithm, h.Upstreams, prev.poolFor(h.ID))}
+		for i := range h.Locations {
+			lc := h.Locations[i]
+			// A location borrows the host's algorithm: which backend
+			// serves a request is a property of the pool, and having two
+			// answers per host would be a setting nobody could reason
+			// about from the diagram.
+			r.locations = append(r.locations, &location{
+				config: lc,
+				pool: balancer.NewPool(h.ID, h.Algorithm, lc.Upstreams,
+					prev.locationPool(h.ID, lc.Path)),
+			})
+		}
+		// Longest path first, so pick can stop at the first match. Normalize
+		// already sorts them; doing it again here keeps the table correct
+		// even for a host that reached it without going through the store.
+		sort.SliceStable(r.locations, func(i, j int) bool {
+			return len(r.locations[i].config.Path) > len(r.locations[j].config.Path)
+		})
 		if h.AccessListID != nil {
 			r.access = cfg.AccessLists[*h.AccessListID]
 		}
@@ -103,6 +155,27 @@ func (t *routingTable) lookupRedirect(hostHeader string) *domain.Redirect {
 	if _, parent, found := strings.Cut(name, "."); found {
 		if rd, ok := t.redirectWildcard[parent]; ok {
 			return rd
+		}
+	}
+	return nil
+}
+
+// locationPool returns the previous pool for one location, matched by path
+// rather than by id: a configuration edit rewrites the rows and reassigns ids,
+// and losing health state on an unrelated edit is exactly what carrying pools
+// across a reload exists to prevent.
+func (t *routingTable) locationPool(hostID int64, path string) *balancer.Pool {
+	if t == nil {
+		return nil
+	}
+	for _, r := range t.routes {
+		if r.host.ID != hostID {
+			continue
+		}
+		for _, l := range r.locations {
+			if l.config.Path == path {
+				return l.pool
+			}
 		}
 	}
 	return nil

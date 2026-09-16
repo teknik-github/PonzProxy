@@ -25,6 +25,20 @@ type Target struct {
 	Name   string
 	Pool   *balancer.Pool
 	Check  domain.HealthCheck
+	// Location names the path prefix this pool serves, empty for the host's
+	// own upstreams. It is part of what identifies a target, because a host
+	// with locations has several pools and each needs its own probe loop.
+	Location string
+}
+
+// key identifies one probe loop. Keying on the host alone was enough until a
+// host could have more than one pool; without the path, a host's locations
+// would each stop the previous one's probing.
+func (t Target) key() targetKey { return targetKey{hostID: t.HostID, location: t.Location} }
+
+type targetKey struct {
+	hostID   int64
+	location string
 }
 
 // StateChangeFunc is called whenever a backend transitions between healthy and
@@ -41,7 +55,7 @@ type Checker struct {
 	alerts alerts.Raiser
 
 	mu      sync.Mutex
-	running map[int64]*hostChecker
+	running map[targetKey]*hostChecker
 	closed  bool
 }
 
@@ -57,7 +71,7 @@ func New(logger *slog.Logger, onChange StateChangeFunc) *Checker {
 	return &Checker{
 		logger:   logger.With("component", "health"),
 		onChange: onChange,
-		running:  make(map[int64]*hostChecker),
+		running:  make(map[targetKey]*hostChecker),
 	}
 }
 
@@ -71,11 +85,12 @@ func (c *Checker) Sync(targets []Target) {
 		return
 	}
 
-	wanted := make(map[int64]struct{}, len(targets))
+	wanted := make(map[targetKey]struct{}, len(targets))
 	for _, t := range targets {
-		wanted[t.HostID] = struct{}{}
+		k := t.key()
+		wanted[k] = struct{}{}
 
-		existing, ok := c.running[t.HostID]
+		existing, ok := c.running[k]
 		if ok && existing.matches(t) {
 			continue // nothing about this host's probing changed
 		}
@@ -83,16 +98,16 @@ func (c *Checker) Sync(targets []Target) {
 			existing.stop()
 		}
 		if !t.Check.Enabled || len(t.Pool.Backends()) == 0 {
-			delete(c.running, t.HostID)
+			delete(c.running, k)
 			continue
 		}
-		c.running[t.HostID] = c.start(t)
+		c.running[k] = c.start(t)
 	}
 
-	for hostID, hc := range c.running {
-		if _, keep := wanted[hostID]; !keep {
+	for k, hc := range c.running {
+		if _, keep := wanted[k]; !keep {
 			hc.stop()
-			delete(c.running, hostID)
+			delete(c.running, k)
 		}
 	}
 }
@@ -102,7 +117,7 @@ func (c *Checker) Close() {
 	c.mu.Lock()
 	c.closed = true
 	running := c.running
-	c.running = make(map[int64]*hostChecker)
+	c.running = make(map[targetKey]*hostChecker)
 	c.mu.Unlock()
 
 	for _, hc := range running {

@@ -238,6 +238,7 @@ func run() error {
 	spawn("accesslog", accessLog.Run)
 	spawn("alerts", dispatcher.Run)
 	spawn("backups", backups.Run)
+	spawn("usage-budgets", alerts.NewUsageWatcher(db.Hosts(), db.Metrics(), dispatcher, logger).Run)
 	spawn("websocket", apiServer.Run)
 
 	servers := []*namedServer{

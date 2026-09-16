@@ -23,6 +23,10 @@ var errNoCertificate = errors.New("no certificate configured for this server nam
 type requestState struct {
 	route   *route
 	backend *balancer.Backend
+	// location is the path prefix this request matched, or nil when the
+	// host's own upstreams are serving it. The rewrite hook needs it to
+	// strip the prefix.
+	location *location
 	// upstreamErr is set by the error handler when the backend could not be
 	// reached, which is what tells the retry loop to try another one.
 	upstreamErr error
@@ -115,6 +119,11 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, rt *route, star
 	clientIP := e.clientIP(r)
 	rec := &recorder{ResponseWriter: w}
 
+	// Which backends serve this request depends on its path now, not only
+	// on its host. A host with no locations resolves to its own pool
+	// without entering the loop.
+	pool, loc := rt.poolFor(r.URL.Path)
+
 	// Set before forwarding: ReverseProxy adds the upstream's headers to
 	// this map rather than replacing it, so the value survives, and a
 	// backend that sets its own HSTS is left alone.
@@ -129,7 +138,7 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, rt *route, star
 		lastErr  error
 	)
 	for attempt := 0; ; attempt++ {
-		backend, err := rt.pool.Pick(clientIP, tried)
+		backend, err := pool.Pick(clientIP, tried)
 		if err != nil {
 			// Running out of candidates after real connection failures is
 			// a different condition from having none to begin with: the
@@ -143,7 +152,7 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, rt *route, star
 		}
 		tried = append(tried, backend)
 
-		state := &requestState{route: rt, backend: backend}
+		state := &requestState{route: rt, backend: backend, location: loc}
 		attemptStart := time.Now()
 
 		backend.Acquire()
@@ -213,6 +222,17 @@ func (e *Engine) rewrite(pr *httputil.ProxyRequest) {
 
 	pr.Out.URL.Scheme = state.backend.URL.Scheme
 	pr.Out.URL.Host = state.backend.URL.Host
+
+	// A location that strips its prefix lets a backend serving "/v1/users"
+	// sit behind "/api/v1/users" without knowing it. Both forms are set:
+	// RawPath carries the encoded original, and leaving it stale would send
+	// the unstripped path for any URL containing an escape.
+	if state.location != nil && state.location.config.StripPrefix {
+		pr.Out.URL.Path = state.location.config.Forward(pr.In.URL.Path)
+		if pr.In.URL.RawPath != "" {
+			pr.Out.URL.RawPath = state.location.config.Forward(pr.In.URL.RawPath)
+		}
+	}
 
 	// SetXForwarded appends the client to X-Forwarded-For and sets Proto
 	// and Host, replacing any values the client supplied so they cannot be

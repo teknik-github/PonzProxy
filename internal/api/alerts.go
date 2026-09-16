@@ -80,6 +80,15 @@ func (s *Server) handleListAlertEvents(w http.ResponseWriter, _ *http.Request) {
 		domain.AlertHostUnavailable:     {"Host has nothing left", "Every upstream is out. Visitors are seeing errors right now."},
 		domain.AlertCertificateExpiring: {"Certificate expiring", "Renewal has not produced a new certificate yet and time is running out."},
 		domain.AlertCertificateFailed:   {"Certificate renewal failed", "The only warning before a certificate simply expires."},
+		domain.AlertUsageExceeded:       {"Traffic budget exceeded", "A host passed the transfer budget set for it. About cost rather than uptime, so it reaches you while there is still time to act."},
+	}
+
+	// An event with no entry above would render as a blank row in the
+	// picker, so a missing label is a bug rather than a default.
+	for _, e := range domain.AlertEvents() {
+		if descriptions[e].label == "" {
+			s.logger.Error("alert event has no label for the console", "event", e)
+		}
 	}
 
 	out := make([]entry, 0, len(domain.AlertEvents()))

@@ -312,6 +312,8 @@ function toInput(host: Host | null): HostInput {
         title: "This site is temporarily unavailable",
         message: "Something went wrong on our side. Please try again in a few moments.",
       },
+      usageAlert: { enabled: false, bytes: 107374182400, periodDays: 30 },
+      locations: [],
     }
   }
   return {
@@ -377,6 +379,19 @@ function toInput(host: Host | null): HostInput {
       allowFrom: host.maintenance.allowFrom ?? [],
     },
     errorPages: { ...host.errorPages },
+    usageAlert: { ...host.usageAlert },
+    locations: (host.locations ?? []).map((l) => ({
+      path: l.path,
+      stripPrefix: l.stripPrefix,
+      upstreams: (l.upstreams ?? []).map((u) => ({
+        scheme: u.scheme,
+        address: u.address,
+        weight: u.weight,
+        maxConns: u.maxConns,
+        enabled: u.enabled,
+        skipTlsVerify: u.skipTlsVerify,
+      })),
+    })),
   }
 }
 
@@ -407,6 +422,27 @@ function HostSheet({
   const patchUpstream = (index: number, fields: Partial<UpstreamInput>) =>
     patch({
       upstreams: input.upstreams.map((u, i) => (i === index ? { ...u, ...fields } : u)),
+    })
+
+  const patchLocation = (index: number, fields: Partial<HostInput["locations"][number]>) =>
+    patch({
+      locations: input.locations.map((l, i) => (i === index ? { ...l, ...fields } : l)),
+    })
+
+  const patchLocationUpstream = (
+    location: number,
+    index: number,
+    fields: Partial<UpstreamInput>,
+  ) =>
+    patch({
+      locations: input.locations.map((l, i) =>
+        i === location
+          ? {
+              ...l,
+              upstreams: l.upstreams.map((u, j) => (j === index ? { ...u, ...fields } : u)),
+            }
+          : l,
+      ),
     })
 
   const chosen = algorithms.find((a) => a.value === input.algorithm)
@@ -592,6 +628,161 @@ function HostSheet({
                     </Button>
                   )}
                 </div>
+              </div>
+            ))}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center">
+              <h3 className="text-sm font-medium">Locations</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() =>
+                  patch({
+                    locations: [
+                      ...input.locations,
+                      { path: "/api", stripPrefix: false, upstreams: [blankUpstream()] },
+                    ],
+                  })
+                }
+              >
+                <IconPlus />
+                Add location
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Sends one path prefix to different backends. Everything that
+              matches none of them is served by the upstreams above. Matching
+              is on whole segments, so <code>/api</code> claims{" "}
+              <code>/api/v1</code> but never <code>/apiary</code>, and the
+              longest match wins whatever order you list them in.
+            </p>
+            {fieldError("locations") && (
+              <p className="text-destructive text-xs">{fieldError("locations")}</p>
+            )}
+
+            {input.locations.map((l, li) => (
+              <div key={li} className="flex flex-col gap-3 rounded-lg border p-3">
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                  <FormField
+                    label="Path prefix"
+                    error={fieldError(`locations[${li}].path`)}
+                  >
+                    <Input
+                      className="font-mono"
+                      placeholder="/api"
+                      value={l.path}
+                      onChange={(e) => patchLocation(li, { path: e.target.value })}
+                    />
+                  </FormField>
+                  <div className="flex items-end pb-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground"
+                      onClick={() =>
+                        patch({ locations: input.locations.filter((_, j) => j !== li) })
+                      }
+                    >
+                      <IconTrash />
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+
+                <CheckField
+                  label={`Strip ${l.path || "the prefix"} before forwarding`}
+                  checked={l.stripPrefix}
+                  onChange={(v) => patchLocation(li, { stripPrefix: v })}
+                />
+
+                {fieldError(`locations[${li}].upstreams`) && (
+                  <p className="text-destructive text-xs">
+                    {fieldError(`locations[${li}].upstreams`)}
+                  </p>
+                )}
+
+                {l.upstreams.map((u, ui) => (
+                  <div
+                    key={ui}
+                    className="bg-muted/40 grid gap-3 rounded-md border p-3 sm:grid-cols-[100px_1fr_90px_auto]"
+                  >
+                    <FormField label="Scheme">
+                      <Select
+                        value={u.scheme}
+                        onValueChange={(v) =>
+                          patchLocationUpstream(li, ui, { scheme: v as "http" | "https" })
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="http">http</SelectItem>
+                          <SelectItem value="https">https</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                    <FormField
+                      label="Address"
+                      error={fieldError(`locations[${li}].upstreams[${ui}].address`)}
+                    >
+                      <Input
+                        className="font-mono"
+                        placeholder="127.0.0.1:8000"
+                        value={u.address}
+                        onChange={(e) =>
+                          patchLocationUpstream(li, ui, { address: e.target.value })
+                        }
+                      />
+                    </FormField>
+                    <FormField
+                      label="Weight"
+                      error={fieldError(`locations[${li}].upstreams[${ui}].weight`)}
+                    >
+                      <Input
+                        type="number"
+                        min={1}
+                        value={u.weight}
+                        onChange={(e) =>
+                          patchLocationUpstream(li, ui, { weight: Number(e.target.value) })
+                        }
+                      />
+                    </FormField>
+                    <div className="flex items-end pb-2">
+                      {l.upstreams.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground"
+                          onClick={() =>
+                            patchLocation(li, {
+                              upstreams: l.upstreams.filter((_, j) => j !== ui),
+                            })
+                          }
+                        >
+                          <IconTrash />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  onClick={() =>
+                    patchLocation(li, { upstreams: [...l.upstreams, blankUpstream()] })
+                  }
+                >
+                  <IconPlus />
+                  Add upstream
+                </Button>
               </div>
             ))}
           </div>
@@ -1226,6 +1417,79 @@ function HostSheet({
                     }
                   />
                 </FormField>
+              </>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Traffic budget</h3>
+              <p className="text-muted-foreground text-xs">
+                Sends an alert when this host passes a transfer budget. About
+                money rather than uptime, so it goes out as a warning — it
+                reaches you while there is still a month left to act, instead
+                of arriving with the invoice.
+              </p>
+            </div>
+
+            <CheckField
+              label="Warn me when this host goes over budget"
+              checked={input.usageAlert.enabled}
+              onChange={(v) => patch({ usageAlert: { ...input.usageAlert, enabled: v } })}
+            />
+
+            {input.usageAlert.enabled && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    label="Budget (GB)"
+                    hint="Counted in and out together, which is how transfer is billed."
+                    error={fieldError("usageAlert.bytes")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      value={Math.round(input.usageAlert.bytes / 1_000_000_000)}
+                      onChange={(e) =>
+                        patch({
+                          usageAlert: {
+                            ...input.usageAlert,
+                            bytes: Number(e.target.value) * 1_000_000_000,
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Over the last (days)"
+                    hint="A rolling window: ponzproxy does not know your billing day, and guessing one would put the reset in the wrong place every month."
+                    error={fieldError("usageAlert.periodDays")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={input.usageAlert.periodDays}
+                      onChange={(e) =>
+                        patch({
+                          usageAlert: {
+                            ...input.usageAlert,
+                            periodDays: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Needs an alert channel subscribed to{" "}
+                  <strong>usage exceeded</strong>, and repeats at most once a
+                  day while it stays over. History only reaches back as far as
+                  it is kept, so a window longer than your retention measures
+                  less time than it says.
+                </p>
               </>
             )}
           </div>

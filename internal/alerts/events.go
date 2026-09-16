@@ -95,3 +95,27 @@ func CertificateFailed(r Raiser, name, reason string) {
 		fmt.Sprintf("Certificate %q failed to renew", name),
 		reason))
 }
+
+// UsageExceeded reports a host passing the traffic budget set for it.
+//
+// The wording carries the figures rather than pointing at a screen, because
+// the whole point of this alert is that it reaches someone who is not looking
+// at the console.
+func UsageExceeded(r Raiser, host string, used, budget int64, periodDays int) {
+	if r == nil {
+		return
+	}
+	window := fmt.Sprintf("%d days", periodDays)
+	if periodDays == 1 {
+		window = "24 hours"
+	}
+	a := domain.NewAlert(domain.AlertUsageExceeded,
+		"usage/"+host,
+		fmt.Sprintf("%s: %s of traffic in %s, over its %s budget",
+			host, domain.FormatBytes(used), window, domain.FormatBytes(budget)),
+		fmt.Sprintf("Counted at the proxy, in and out together. "+
+			"Raise the budget on the host, or look at Traffic used to see what is "+
+			"drawing it. This repeats at most once a day while it stays over."))
+	a.Host = host
+	r.Raise(a)
+}

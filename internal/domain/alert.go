@@ -29,6 +29,10 @@ const (
 	// AlertCertificateFailed fires when a renewal attempt failed, which is
 	// the only warning before a certificate simply expires.
 	AlertCertificateFailed AlertEvent = "certificate_failed"
+	// AlertUsageExceeded fires when a host passes the traffic budget set
+	// for it. Hosting is billed by the byte, so the operator who wants
+	// this wants it before the invoice, not after.
+	AlertUsageExceeded AlertEvent = "usage_exceeded"
 )
 
 // AlertEvents lists every event, for the UI's picker.
@@ -36,6 +40,7 @@ func AlertEvents() []AlertEvent {
 	return []AlertEvent{
 		AlertUpstreamDown, AlertUpstreamRecovered, AlertUpstreamEjected,
 		AlertHostUnavailable, AlertCertificateExpiring, AlertCertificateFailed,
+		AlertUsageExceeded,
 	}
 }
 
@@ -53,7 +58,10 @@ func (e AlertEvent) Severity() string {
 	switch e {
 	case AlertUpstreamRecovered:
 		return "info"
-	case AlertCertificateExpiring:
+	case AlertCertificateExpiring, AlertUsageExceeded:
+		// Passing a budget costs money, not uptime. Waking someone at
+		// three in the morning for it would teach them to mute the
+		// channel that also carries the outages.
 		return "warning"
 	default:
 		return "critical"

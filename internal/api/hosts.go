@@ -32,6 +32,17 @@ type hostPayload struct {
 	TrafficLimits    limitsPayload        `json:"trafficLimits"`
 	Maintenance      domain.Maintenance   `json:"maintenance"`
 	ErrorPages       domain.ErrorPages    `json:"errorPages"`
+	UsageAlert       domain.UsageAlert    `json:"usageAlert"`
+	Locations        []locationPayload    `json:"locations"`
+}
+
+// locationPayload is one path prefix and the backends behind it. Upstreams
+// reuse the host's own upstream shape, because a location's backends are
+// backends: giving them a second shape would be two ways to say one thing.
+type locationPayload struct {
+	Path        string            `json:"path"`
+	StripPrefix bool              `json:"stripPrefix"`
+	Upstreams   []upstreamPayload `json:"upstreams"`
 }
 
 // limitsPayload is the per-host traffic limit. It mirrors domain.TrafficLimits
@@ -156,6 +167,21 @@ func (p hostPayload) toDomain() domain.Host {
 		// the two to drift apart.
 		Maintenance: p.Maintenance,
 		ErrorPages:  p.ErrorPages,
+		UsageAlert:  p.UsageAlert,
+	}
+	for _, l := range p.Locations {
+		loc := domain.Location{Path: l.Path, StripPrefix: l.StripPrefix}
+		for _, u := range l.Upstreams {
+			loc.Upstreams = append(loc.Upstreams, domain.Upstream{
+				Scheme:        u.Scheme,
+				Address:       u.Address,
+				Weight:        u.Weight,
+				MaxConns:      u.MaxConns,
+				Enabled:       u.Enabled,
+				SkipTLSVerify: u.SkipTLSVerify,
+			})
+		}
+		h.Locations = append(h.Locations, loc)
 	}
 	for _, u := range p.Upstreams {
 		h.Upstreams = append(h.Upstreams, domain.Upstream{

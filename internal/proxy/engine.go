@@ -159,6 +159,18 @@ func (e *Engine) Reload(cfg Config) {
 				Pool:   r.pool,
 				Check:  r.host.HealthCheck,
 			})
+			// A location has its own backends, so it needs its own probe
+			// loop. It borrows the host's check settings: how a backend is
+			// tested is a property of the site, not of the path.
+			for _, l := range r.locations {
+				targets = append(targets, health.Target{
+					HostID:   r.host.ID,
+					Name:     r.host.Name + " " + l.config.Path,
+					Pool:     l.pool,
+					Check:    r.host.HealthCheck,
+					Location: l.config.Path,
+				})
+			}
 		}
 		e.opts.Health.Sync(targets)
 	}
@@ -203,11 +215,26 @@ func (e *Engine) MetricsPools() []metrics.PoolInfo {
 	out := make([]metrics.PoolInfo, 0, len(table.routes))
 	for _, r := range table.routes {
 		up, total := r.pool.HealthyCount()
+		ups := r.pool.Snapshot()
+
+		// A location's backends belong to the same host, so they are
+		// reported in the same flat list with a label rather than as a
+		// second entry — PoolInfo is keyed by host id downstream, and two
+		// entries per host would silently drop one of them.
+		for _, l := range r.locations {
+			lup, ltotal := l.pool.HealthyCount()
+			up, total = up+lup, total+ltotal
+			for _, s := range l.pool.Snapshot() {
+				s.Location = l.config.Path
+				ups = append(ups, s)
+			}
+		}
+
 		out = append(out, metrics.PoolInfo{
 			HostID:    r.host.ID,
 			Name:      r.host.Name,
 			Enabled:   r.host.Enabled,
-			Upstreams: r.pool.Snapshot(),
+			Upstreams: ups,
 			Up:        up,
 			Total:     total,
 		})

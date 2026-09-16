@@ -24,6 +24,7 @@ const hostColumns = `
 	cache_max_bytes, limit_mode, limit_rps, limit_burst, limit_max_conns,
 	limit_max_body, maint_enabled, maint_status, maint_title, maint_message,
 	maint_retry_after, error_page_enabled, error_page_title, error_page_message,
+	usage_alert_enabled, usage_alert_bytes, usage_alert_days,
 	created_at, updated_at`
 
 func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
@@ -61,6 +62,9 @@ func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	if err := r.attachGuardianRules(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachLocations(ctx, byID); err != nil {
+		return nil, err
+	}
 	if err := r.attachMaintAllow(ctx, byID); err != nil {
 		return nil, err
 	}
@@ -89,6 +93,9 @@ func (r *hostRepo) Get(ctx context.Context, id int64) (*domain.Host, error) {
 		return nil, err
 	}
 	if err := r.attachGuardianRules(ctx, byID); err != nil {
+		return nil, err
+	}
+	if err := r.attachLocations(ctx, byID); err != nil {
 		return nil, err
 	}
 	if err := r.attachMaintAllow(ctx, byID); err != nil {
@@ -121,8 +128,9 @@ func (r *hostRepo) Create(ctx context.Context, h *domain.Host) error {
 				limit_mode, limit_rps, limit_burst, limit_max_conns, limit_max_body,
 				maint_enabled, maint_status, maint_title, maint_message, maint_retry_after,
 				error_page_enabled, error_page_title, error_page_message,
+				usage_alert_enabled, usage_alert_bytes, usage_alert_days,
 				created_at, updated_at
-			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			hostInsertArgs(h)...)
 		if err != nil {
 			return translateErr(err)
@@ -155,6 +163,7 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 				maint_enabled = ?, maint_status = ?, maint_title = ?,
 				maint_message = ?, maint_retry_after = ?,
 				error_page_enabled = ?, error_page_title = ?, error_page_message = ?,
+				usage_alert_enabled = ?, usage_alert_bytes = ?, usage_alert_days = ?,
 				updated_at = ?
 			WHERE id = ?`,
 			hostUpdateArgs(h)...)
@@ -190,6 +199,12 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM host_maint_allow WHERE host_id = ?`, h.ID); err != nil {
+			return translateErr(err)
+		}
+		// location_upstreams cascades from host_locations, so one delete
+		// clears both.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM host_locations WHERE host_id = ?`, h.ID); err != nil {
 			return translateErr(err)
 		}
 		return writeHostChildren(ctx, tx, h)
@@ -267,6 +282,75 @@ func (r *hostRepo) attachGuardianRules(ctx context.Context, byID map[int64]*doma
 		}
 	}
 	return translateErr(rows.Err())
+}
+
+// locationConflict names the path in a UNIQUE violation, since that is the
+// only detail needed to fix it.
+func locationConflict(err error, path string) error {
+	translated := translateErr(err)
+	if translated != nil && errorIsConflict(translated) {
+		return fmt.Errorf("%w: two locations claim the path %q", domain.ErrConflict, path)
+	}
+	return translated
+}
+
+// attachLocations loads each host's locations and their backends in two
+// queries, whatever the number of hosts, so listing stays a fixed number of
+// round trips.
+func (r *hostRepo) attachLocations(ctx context.Context, byID map[int64]*domain.Host) error {
+	if len(byID) == 0 {
+		return nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, host_id, path, strip_prefix, position
+		FROM host_locations ORDER BY host_id, position`)
+	if err != nil {
+		return translateErr(err)
+	}
+	defer rows.Close()
+
+	byLocation := make(map[int64]*domain.Location)
+	for rows.Next() {
+		var l domain.Location
+		if err := rows.Scan(&l.ID, &l.HostID, &l.Path, &l.StripPrefix, &l.Position); err != nil {
+			return err
+		}
+		h, ok := byID[l.HostID]
+		if !ok {
+			continue
+		}
+		h.Locations = append(h.Locations, l)
+		byLocation[l.ID] = &h.Locations[len(h.Locations)-1]
+	}
+	if err := translateErr(rows.Err()); err != nil {
+		return err
+	}
+	if len(byLocation) == 0 {
+		return nil
+	}
+
+	ups, err := r.db.QueryContext(ctx, `
+		SELECT location_id, id, scheme, address, weight, max_conns, enabled, skip_tls_verify
+		FROM location_upstreams ORDER BY location_id, position`)
+	if err != nil {
+		return translateErr(err)
+	}
+	defer ups.Close()
+
+	for ups.Next() {
+		var locationID int64
+		var u domain.Upstream
+		if err := ups.Scan(&locationID, &u.ID, &u.Scheme, &u.Address, &u.Weight,
+			&u.MaxConns, &u.Enabled, &u.SkipTLSVerify); err != nil {
+			return err
+		}
+		if l, ok := byLocation[locationID]; ok {
+			u.HostID = l.HostID
+			l.Upstreams = append(l.Upstreams, u)
+		}
+	}
+	return translateErr(ups.Err())
 }
 
 // attachMaintAllow loads each host's maintenance bypass list and parses it
@@ -414,6 +498,35 @@ func writeHostChildren(ctx context.Context, tx *sql.Tx, h *domain.Host) error {
 			return translateErr(err)
 		}
 	}
+	for i := range h.Locations {
+		l := &h.Locations[i]
+		l.HostID = h.ID
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO host_locations (host_id, path, strip_prefix, position)
+			VALUES (?,?,?,?)`, h.ID, l.Path, l.StripPrefix, i)
+		if err != nil {
+			return locationConflict(err, l.Path)
+		}
+		if l.ID, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		for j := range l.Upstreams {
+			u := &l.Upstreams[j]
+			u.HostID = h.ID
+			res, err := tx.ExecContext(ctx, `
+				INSERT INTO location_upstreams (location_id, scheme, address, weight,
+					max_conns, enabled, skip_tls_verify, position)
+				VALUES (?,?,?,?,?,?,?,?)`,
+				l.ID, u.Scheme, u.Address, u.Weight, u.MaxConns,
+				u.Enabled, u.SkipTLSVerify, j)
+			if err != nil {
+				return translateErr(err)
+			}
+			if u.ID, err = res.LastInsertId(); err != nil {
+				return err
+			}
+		}
+	}
 	for i, c := range h.Maintenance.AllowFrom {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO host_maint_allow (host_id, cidr, position) VALUES (?,?,?)`,
@@ -476,6 +589,7 @@ func hostInsertArgs(h *domain.Host) []any {
 		h.Maintenance.Enabled, h.Maintenance.StatusCode, h.Maintenance.Title,
 		h.Maintenance.Message, h.Maintenance.RetryAfterSeconds,
 		h.ErrorPages.Enabled, h.ErrorPages.Title, h.ErrorPages.Message,
+		h.UsageAlert.Enabled, h.UsageAlert.Bytes, h.UsageAlert.PeriodDays,
 		h.CreatedAt.Unix(), h.UpdatedAt.Unix(),
 	}
 }
@@ -500,6 +614,7 @@ func hostUpdateArgs(h *domain.Host) []any {
 		h.Maintenance.Enabled, h.Maintenance.StatusCode, h.Maintenance.Title,
 		h.Maintenance.Message, h.Maintenance.RetryAfterSeconds,
 		h.ErrorPages.Enabled, h.ErrorPages.Title, h.ErrorPages.Message,
+		h.UsageAlert.Enabled, h.UsageAlert.Bytes, h.UsageAlert.PeriodDays,
 		h.UpdatedAt.Unix(), h.ID,
 	}
 }
@@ -546,6 +661,7 @@ func scanHost(sc scanner) (*domain.Host, error) {
 		&h.Maintenance.Enabled, &h.Maintenance.StatusCode, &h.Maintenance.Title,
 		&h.Maintenance.Message, &h.Maintenance.RetryAfterSeconds,
 		&h.ErrorPages.Enabled, &h.ErrorPages.Title, &h.ErrorPages.Message,
+		&h.UsageAlert.Enabled, &h.UsageAlert.Bytes, &h.UsageAlert.PeriodDays,
 		&created, &updated,
 	)
 	if err != nil {

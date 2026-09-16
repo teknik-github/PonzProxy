@@ -84,6 +84,31 @@ export interface ErrorPages {
   message: string
 }
 
+/** Location routes one path prefix of a host to its own backends.
+ *
+ *  Without it a domain is one thing: serving a frontend at / and an API at
+ *  /api meant two subdomains, two certificates, a CORS policy and cookies that
+ *  no longer shared an origin. */
+export interface Location {
+  id: number
+  hostId: number
+  path: string
+  /** Remove the prefix before forwarding, so a backend serving /v1/users can
+   *  sit behind /api/v1/users without knowing it. */
+  stripPrefix: boolean
+  upstreams: Upstream[] | null
+  position: number
+}
+
+/** UsageAlert warns when a host's traffic passes a budget. About money rather
+ *  than uptime, which is why it is a warning and not a critical. */
+export interface UsageAlert {
+  enabled: boolean
+  bytes: number
+  /** Rolling, not calendar: ponzproxy does not know your billing day. */
+  periodDays: number
+}
+
 export interface Host {
   id: number
   name: string
@@ -105,6 +130,8 @@ export interface Host {
   trafficLimits: TrafficLimits
   maintenance: Maintenance
   errorPages: ErrorPages
+  usageAlert: UsageAlert
+  locations: Location[] | null
   createdAt: string
   updatedAt: string
 }
@@ -168,6 +195,8 @@ export interface UpstreamSnapshot {
   enabled: boolean
   weight: number
   activeConns: number
+  /** The path prefix this backend serves, empty for the host's own upstreams. */
+  location?: string
   totalRequests: number
   /** Requests served in the last `Snapshot.shareWindowSeconds`. This is what
    *  the split is drawn from: cumulative totals average over the whole uptime
@@ -341,6 +370,12 @@ export interface HostInput {
   trafficLimits: TrafficLimits
   maintenance: Maintenance
   errorPages: ErrorPages
+  usageAlert: UsageAlert
+  locations: {
+    path: string
+    stripPrefix: boolean
+    upstreams: UpstreamInput[]
+  }[]
 }
 
 export interface CertificateInput {

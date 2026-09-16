@@ -106,6 +106,11 @@ type UpstreamSnapshot struct {
 	// ActiveConns is the number of requests in flight right now — the value
 	// LeastConnections selects on.
 	ActiveConns int64 `json:"activeConns"`
+	// Location is the path prefix this backend serves, empty when it is one
+	// of the host's own upstreams. A host's backends are reported as one
+	// flat list so every existing reader keeps working; this is the label
+	// that lets a reader group them when it wants to.
+	Location string `json:"location,omitempty"`
 	// TotalRequests is cumulative since process start.
 	TotalRequests uint64 `json:"totalRequests"`
 	// WindowRequests is how many of those arrived in the last

@@ -11,6 +11,36 @@ Every released version has a matching container image and a git tag, so
 
 ## [Unreleased]
 
+### Added
+
+- **Locations** — a host can now send a path prefix to its own backends, so
+  one domain serves a frontend at `/` and an API at `/api`. Until now routing
+  read the Host header alone, which meant two subdomains, two certificates or
+  a wildcard, a CORS policy, and cookies that no longer shared an origin — a
+  lot of accidental complexity to work around a routing table that looked at
+  one header.
+
+  Matching is on whole segments, so `/api` claims `/api/v1` but never
+  `/apiary`; getting that wrong is the classic prefix-routing bug, and it only
+  shows on paths nobody tested. The longest match wins whatever order they are
+  listed in. `Strip prefix` removes the mount point before forwarding, so a
+  backend serving `/v1/users` can sit behind `/api/v1/users` without knowing
+  it.
+
+  A location is deliberately not a whole host: it borrows the host's
+  algorithm, health checks, TLS, access list, limits and inspection, because
+  those describe the site rather than a path. Each location's pool gets its own
+  health probe, and its backends carry the health state across a reload the
+  same way a host's do.
+- **Traffic budgets** — an alert when a host passes a transfer budget over a
+  rolling window. Rolling rather than calendar, because ponzproxy does not know
+  your billing day and guessing one would put the reset in the wrong place
+  every month. It is a warning rather than a critical: an alert that wakes
+  someone for a cost is one they learn to mute, taking the outage alerts with
+  it. Checked hourly, and repeats at most once a day while a host stays over —
+  the condition persists for days, and an hourly reminder nobody can act on
+  any faster is what gets a channel muted.
+
 ### Fixed
 
 - **`install.sh` refused to upgrade an installation**, because it saw that

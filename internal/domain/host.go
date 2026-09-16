@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -92,6 +93,11 @@ type Host struct {
 	// ErrorPages replaces what a visitor sees when no backend can be
 	// reached. Off by default, falling back to the built-in wording.
 	ErrorPages ErrorPages `json:"errorPages"`
+	// UsageAlert warns when this host's traffic passes a budget.
+	UsageAlert UsageAlert `json:"usageAlert"`
+	// Locations route path prefixes of this host to their own backends.
+	// Anything that matches none of them is served by Upstreams above.
+	Locations []Location `json:"locations"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -182,6 +188,50 @@ func DefaultHealthCheck() HealthCheck {
 
 // Normalize fills in defaults and canonicalises user input so that validation
 // and storage both see the same shape. It is always safe to call twice.
+// NormalizeUpstreams applies the defaults every upstream gets, wherever it is
+// configured. Locations carry their own upstreams, so these rules live here
+// rather than inside Host.Normalize where only one caller could reach them.
+func NormalizeUpstreams(ups []Upstream) {
+	for i := range ups {
+		u := &ups[i]
+		u.Scheme = strings.ToLower(strings.TrimSpace(u.Scheme))
+		if u.Scheme == "" {
+			u.Scheme = "http"
+		}
+		u.Address = strings.TrimSpace(u.Address)
+		if u.Weight <= 0 {
+			u.Weight = 1
+		}
+		if u.MaxConns < 0 {
+			u.MaxConns = 0
+		}
+	}
+}
+
+// ValidateUpstreams checks one set of upstreams, reporting problems under the
+// given field prefix so a form can mark the right row whether the upstream
+// belongs to a host or to one of its locations.
+func ValidateUpstreams(v *ValidationError, prefix string, ups []Upstream) {
+	seen := make(map[string]struct{}, len(ups))
+	for i, u := range ups {
+		field := prefix + "[" + strconv.Itoa(i) + "]"
+		if u.Scheme != "http" && u.Scheme != "https" {
+			v.Add(field+".scheme", "must be http or https")
+		}
+		if err := validateHostPort(u.Address); err != nil {
+			v.Add(field+".address", "%s", err.Error())
+		}
+		if u.Weight < 1 || u.Weight > 1000 {
+			v.Add(field+".weight", "must be between 1 and 1000")
+		}
+		key := u.Scheme + "://" + u.Address
+		if _, dup := seen[key]; dup {
+			v.Add(field+".address", "duplicate upstream %s", key)
+		}
+		seen[key] = struct{}{}
+	}
+}
+
 func (h *Host) Normalize() {
 	h.Name = strings.TrimSpace(h.Name)
 	if h.Algorithm == "" {
@@ -204,20 +254,7 @@ func (h *Host) Normalize() {
 	}
 	h.Domains = domains
 
-	for i := range h.Upstreams {
-		u := &h.Upstreams[i]
-		u.Scheme = strings.ToLower(strings.TrimSpace(u.Scheme))
-		if u.Scheme == "" {
-			u.Scheme = "http"
-		}
-		u.Address = strings.TrimSpace(u.Address)
-		if u.Weight <= 0 {
-			u.Weight = 1
-		}
-		if u.MaxConns < 0 {
-			u.MaxConns = 0
-		}
-	}
+	NormalizeUpstreams(h.Upstreams)
 
 	hc := &h.HealthCheck
 	if hc.Path == "" {
@@ -245,6 +282,17 @@ func (h *Host) Normalize() {
 	h.TrafficLimits.Normalize()
 	h.Maintenance.Normalize()
 	h.ErrorPages.Normalize()
+	h.UsageAlert.Normalize()
+
+	for i := range h.Locations {
+		h.Locations[i].Normalize()
+		h.Locations[i].Position = i
+	}
+	// Longest path first, so the request path can take the first match
+	// instead of scanning for the best one on every request.
+	sort.SliceStable(h.Locations, func(i, j int) bool {
+		return len(h.Locations[i].Path) > len(h.Locations[j].Path)
+	})
 
 	ph := &h.PassiveHealth
 	if ph.MaxFails <= 0 {
@@ -281,24 +329,7 @@ func (h *Host) Validate() error {
 	if len(h.Upstreams) == 0 {
 		v.Add("upstreams", "at least one upstream is required")
 	}
-	seen := make(map[string]struct{}, len(h.Upstreams))
-	for i, u := range h.Upstreams {
-		field := "upstreams[" + strconv.Itoa(i) + "]"
-		if u.Scheme != "http" && u.Scheme != "https" {
-			v.Add(field+".scheme", "must be http or https")
-		}
-		if err := validateHostPort(u.Address); err != nil {
-			v.Add(field+".address", "%s", err.Error())
-		}
-		if u.Weight < 1 || u.Weight > 1000 {
-			v.Add(field+".weight", "must be between 1 and 1000")
-		}
-		key := u.Scheme + "://" + u.Address
-		if _, dup := seen[key]; dup {
-			v.Add(field+".address", "duplicate upstream %s", key)
-		}
-		seen[key] = struct{}{}
-	}
+	ValidateUpstreams(v, "upstreams", h.Upstreams)
 
 	if h.HSTSMaxAge < 0 {
 		v.Add("hstsMaxAge", "must not be negative")
@@ -348,6 +379,33 @@ func (h *Host) Validate() error {
 		if errors.As(err, &pageErr) {
 			v.Fields = append(v.Fields, pageErr.Fields...)
 		}
+	}
+
+	if err := h.UsageAlert.Validate(); err != nil {
+		var usageErr *ValidationError
+		if errors.As(err, &usageErr) {
+			v.Fields = append(v.Fields, usageErr.Fields...)
+		}
+	}
+
+	if len(h.Locations) > MaxLocationsPerHost {
+		v.Add("locations", "must be at most %d", MaxLocationsPerHost)
+	}
+	seenPath := make(map[string]struct{}, len(h.Locations))
+	for i := range h.Locations {
+		if err := h.Locations[i].Validate(i); err != nil {
+			var locErr *ValidationError
+			if errors.As(err, &locErr) {
+				v.Fields = append(v.Fields, locErr.Fields...)
+			}
+		}
+		// Two locations on the same path is not a preference between them;
+		// it is a configuration with no defined answer.
+		if _, dup := seenPath[h.Locations[i].Path]; dup {
+			v.Add("locations["+strconv.Itoa(i)+"].path",
+				"duplicate path %q", h.Locations[i].Path)
+		}
+		seenPath[h.Locations[i].Path] = struct{}{}
 	}
 
 	if h.PassiveHealth.MaxFails < 1 || h.PassiveHealth.MaxFails > 100 {
