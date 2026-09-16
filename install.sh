@@ -52,7 +52,7 @@ Usage: install.sh [options]
 
   --dir PATH            where to keep docker-compose.yml and .env
                         (default: $DIR)
-  --version TAG         image tag to install, e.g. 0.2.1 (default: latest)
+  --version TAG         image tag to install, e.g. 0.3.0 (default: latest)
   --http-port PORT      port for proxied HTTP     (default: $HTTP_PORT)
   --https-port PORT     port for proxied HTTPS    (default: $HTTPS_PORT)
   --console-port PORT   port for the console      (default: $CONSOLE_PORT,

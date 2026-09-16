@@ -7,9 +7,22 @@ an upgrade needs action from you, the **minor** number when something is added,
 and the **patch** number when something is only fixed.
 
 Every released version has a matching container image and a git tag, so
-`ghcr.io/teknik-github/ponzproxy:0.2.1` is exactly the code at `v0.2.1`.
+`ghcr.io/teknik-github/ponzproxy:0.3.0` is exactly the code at `v0.3.0`.
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-09-16
+
+### Upgrading
+
+Nothing needs action. The database migrates itself, and everything added here
+is off until you switch it on: traffic limits, maintenance mode and custom
+error pages all default to off on existing hosts and new ones.
+
+One thing starts on its own: a backup of the data directory is written every
+24 hours into `<data>/backups`, keeping the newest seven. Set
+`PONZ_BACKUP_EVERY=0` to turn it off, or `PONZ_BACKUP_KEEP` to keep fewer. On
+this project's own demo the archive is 6.5 MB from a 43 MB database.
 
 ### Added
 
@@ -235,7 +248,8 @@ First public release.
   per-upstream share of traffic, and historical charts.
 - **Login rate limiting** — five failures from an address, then a pause.
 
-[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/teknik-github/PonzProxy/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/teknik-github/PonzProxy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/teknik-github/PonzProxy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/teknik-github/PonzProxy/releases/tag/v0.1.0
