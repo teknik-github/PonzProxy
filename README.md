@@ -66,7 +66,7 @@ docker run -d --name ponzproxy \
 ```
 
 Pin a version rather than `latest` for anything you care about — `PONZ_VERSION`
-above, or `ghcr.io/teknik-github/ponzproxy:0.1.0` directly. Every release tag
+above, or `ghcr.io/teknik-github/ponzproxy:0.2.0` directly. Every release tag
 has a matching image, and [CHANGELOG.md](CHANGELOG.md) says what changed in
 each.
 

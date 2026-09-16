@@ -7,9 +7,29 @@ an upgrade needs action from you, the **minor** number when something is added,
 and the **patch** number when something is only fixed.
 
 Every released version has a matching container image and a git tag, so
-`ghcr.io/teknik-github/ponzproxy:0.1.0` is exactly the code at `v0.1.0`.
+`ghcr.io/teknik-github/ponzproxy:0.2.0` is exactly the code at `v0.2.0`.
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-09-16
+
+### Upgrading
+
+`docker-compose.yml` moved from `deploy/` to the repository root, so
+`docker compose -f deploy/docker-compose.yml …` no longer resolves. Drop the
+`-f` and run it from the repository root, or — now that the file is
+self-contained — fetch it on its own and stop cloning the repository to
+install:
+
+```sh
+curl -O https://raw.githubusercontent.com/teknik-github/PonzProxy/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/teknik-github/PonzProxy/main/.env.example
+cp .env.example .env
+docker compose up -d
+```
+
+Nothing else needs action. The database migrates itself, and settings that
+were environment variables still are.
 
 ### Added
 
@@ -110,5 +130,6 @@ First public release.
   per-upstream share of traffic, and historical charts.
 - **Login rate limiting** — five failures from an address, then a pause.
 
-[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/teknik-github/PonzProxy/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/teknik-github/PonzProxy/releases/tag/v0.1.0
