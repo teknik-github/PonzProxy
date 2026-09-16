@@ -87,6 +87,40 @@ anything you care about: `PONZ_VERSION` above, or
 `ghcr.io/teknik-github/ponzproxy:0.2.1` directly. Every release tag has a
 matching image, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
 
+### Backing up
+
+Everything the proxy cannot rebuild — the database, every certificate, the
+ACME account key, the session secret — is in the data directory. Configuration
+can be retyped; certificates cannot, because Let's Encrypt allows five per
+domain per week.
+
+A snapshot is written every 24 hours into `<data>/backups`, keeping the newest
+seven (`PONZ_BACKUP_EVERY`, `PONZ_BACKUP_KEEP`). **Those sit on the same disk.**
+They cover a deleted host, a bad edit and a corrupted database — not losing the
+machine. For that, copy one off it:
+
+```sh
+./bin/ponzproxy --backup /tmp/ponzproxy.tar.gz
+# with Docker:
+docker compose exec ponzproxy ponzproxy --backup /tmp/ponzproxy.tar.gz
+docker compose cp ponzproxy:/tmp/ponzproxy.tar.gz .
+```
+
+The console's **Backups** screen does the same thing with a button.
+
+Restoring is a command rather than a button, because a running proxy holds the
+database open:
+
+```sh
+docker compose down                     # or: systemctl stop ponzproxy
+./bin/ponzproxy --restore ponzproxy-20260916-120000.tar.gz
+docker compose up -d
+```
+
+Nothing is deleted: the existing data directory is renamed with a timestamp and
+left for you to remove. An archive holds every private key this proxy has, so
+treat it exactly as you would the server itself.
+
 ### If you lose the admin password
 
 The console can change a password but not recover one. Run this on the machine

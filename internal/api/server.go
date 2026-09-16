@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -64,6 +65,16 @@ type Options struct {
 
 	// LiveInterval is how often the WebSocket feed pushes a snapshot.
 	LiveInterval time.Duration
+
+	// DataDir, DB, Version and Snapshot back the backup endpoints. DB is the
+	// handle the snapshot is taken from; Snapshot writes one to disk. Both
+	// may be nil, in which case those endpoints say so rather than panicking.
+	DataDir     string
+	DB          *sql.DB
+	Version     string
+	Snapshot    func(context.Context) (string, error)
+	BackupEvery time.Duration
+	BackupKeep  int
 
 	// MetricsRetention is how far back samples are kept. The usage report
 	// says so, because a bandwidth figure for a window longer than this
@@ -258,6 +269,14 @@ func (s *Server) routes() http.Handler {
 	write.HandleFunc("PUT /api/alert-channels/{id}", s.handleUpdateAlertChannel)
 	write.HandleFunc("DELETE /api/alert-channels/{id}", s.handleDeleteAlertChannel)
 	write.HandleFunc("POST /api/alert-channels/{id}/test", s.handleTestAlertChannel)
+	// Backups are admin-only even to read: the archive carries every private
+	// key this proxy holds, so whoever can download one can impersonate
+	// every site it serves.
+	write.HandleFunc("GET /api/backups", s.handleBackupStatus)
+	write.HandleFunc("GET /api/backups/download", s.handleBackupDownload)
+	write.HandleFunc("POST /api/backups", s.handleBackupCreate)
+	write.HandleFunc("GET /api/backups/{name}", s.handleBackupFile)
+	write.HandleFunc("DELETE /api/backups/{name}", s.handleBackupDelete)
 
 	mux.Handle("POST /api/hosts", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/hosts/{id}", s.authenticate(s.requireWrite(write)))
@@ -279,6 +298,11 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("POST /api/redirects", s.authenticate(s.requireWrite(write)))
 	mux.Handle("PUT /api/redirects/{id}", s.authenticate(s.requireWrite(write)))
 	mux.Handle("DELETE /api/redirects/{id}", s.authenticate(s.requireWrite(write)))
+	mux.Handle("GET /api/backups", s.authenticate(s.requireWrite(write)))
+	mux.Handle("GET /api/backups/download", s.authenticate(s.requireWrite(write)))
+	mux.Handle("POST /api/backups", s.authenticate(s.requireWrite(write)))
+	mux.Handle("GET /api/backups/{name}", s.authenticate(s.requireWrite(write)))
+	mux.Handle("DELETE /api/backups/{name}", s.authenticate(s.requireWrite(write)))
 
 	if s.opts.UI != nil {
 		mux.Handle("/", s.opts.UI)

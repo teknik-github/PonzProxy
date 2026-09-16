@@ -87,6 +87,11 @@ type Host struct {
 	// TrafficLimits bounds what one client address may ask of this host.
 	// Off by default; see TrafficLimits.
 	TrafficLimits TrafficLimits `json:"trafficLimits"`
+	// Maintenance answers this host with a page instead of proxying it.
+	Maintenance Maintenance `json:"maintenance"`
+	// ErrorPages replaces what a visitor sees when no backend can be
+	// reached. Off by default, falling back to the built-in wording.
+	ErrorPages ErrorPages `json:"errorPages"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -238,6 +243,8 @@ func (h *Host) Normalize() {
 	h.Guardian.Normalize()
 	h.Cache.Normalize()
 	h.TrafficLimits.Normalize()
+	h.Maintenance.Normalize()
+	h.ErrorPages.Normalize()
 
 	ph := &h.PassiveHealth
 	if ph.MaxFails <= 0 {
@@ -326,6 +333,20 @@ func (h *Host) Validate() error {
 		var limitErr *ValidationError
 		if errors.As(err, &limitErr) {
 			v.Fields = append(v.Fields, limitErr.Fields...)
+		}
+	}
+
+	if err := h.Maintenance.Validate(); err != nil {
+		var pageErr *ValidationError
+		if errors.As(err, &pageErr) {
+			v.Fields = append(v.Fields, pageErr.Fields...)
+		}
+	}
+
+	if err := h.ErrorPages.Validate(); err != nil {
+		var pageErr *ValidationError
+		if errors.As(err, &pageErr) {
+			v.Fields = append(v.Fields, pageErr.Fields...)
 		}
 	}
 

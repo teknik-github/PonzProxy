@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"net"
-	"strings"
-)
+import "net"
 
 // TrafficLimits bounds what one client may ask of a host.
 //
@@ -104,36 +101,7 @@ func (t *TrafficLimits) Normalize() {
 		t.Burst = t.RequestsPerSecond
 	}
 
-	seen := make(map[string]struct{}, len(t.Exempt))
-	cidrs := make([]string, 0, len(t.Exempt))
-	nets := make([]*net.IPNet, 0, len(t.Exempt))
-	for _, raw := range t.Exempt {
-		entry := strings.TrimSpace(raw)
-		if entry == "" {
-			continue
-		}
-		// A bare address is the common way to write a single host, and
-		// rejecting it would be pedantry.
-		if !strings.Contains(entry, "/") {
-			if ip := net.ParseIP(entry); ip != nil {
-				if ip.To4() != nil {
-					entry += "/32"
-				} else {
-					entry += "/128"
-				}
-			}
-		}
-		if _, dup := seen[entry]; dup {
-			continue
-		}
-		seen[entry] = struct{}{}
-		cidrs = append(cidrs, entry)
-		if _, n, err := net.ParseCIDR(entry); err == nil {
-			nets = append(nets, n)
-		}
-	}
-	t.Exempt = cidrs
-	t.exempt = nets
+	t.Exempt, t.exempt = parseCIDRList(t.Exempt)
 }
 
 // Validate reports every problem at once, so a form shows them together.

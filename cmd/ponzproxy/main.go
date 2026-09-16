@@ -13,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -26,6 +27,7 @@ import (
 	"github.com/ponzproxy/ponzproxy/internal/accesslog"
 	"github.com/ponzproxy/ponzproxy/internal/alerts"
 	"github.com/ponzproxy/ponzproxy/internal/api"
+	"github.com/ponzproxy/ponzproxy/internal/backup"
 	"github.com/ponzproxy/ponzproxy/internal/certmgr"
 	"github.com/ponzproxy/ponzproxy/internal/domain"
 	"github.com/ponzproxy/ponzproxy/internal/health"
@@ -53,7 +55,21 @@ func run() error {
 	// container needs, while this is a one-shot recovery action.
 	resetUser := flag.String("reset-password", "",
 		"reset the named account to a freshly generated password, print it, and exit")
+	backupTo := flag.String("backup", "",
+		"write a backup of the data directory to this file, then exit")
+	restoreFrom := flag.String("restore", "",
+		"replace the data directory from this backup file, then exit")
 	flag.Parse()
+
+	// A restore is about to replace the data directory, so the config is
+	// read without creating it — see config.LoadReadOnly.
+	if *restoreFrom != "" {
+		cfg, err := config.LoadReadOnly()
+		if err != nil {
+			return err
+		}
+		return restoreBackup(cfg, *restoreFrom)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -64,6 +80,11 @@ func run() error {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 		return resetPassword(ctx, cfg, *resetUser)
+	}
+	if *backupTo != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return writeBackup(ctx, cfg, *backupTo)
 	}
 
 	logger := logging.New(cfg.LogLevel, cfg.LogFormat)
@@ -83,6 +104,9 @@ func run() error {
 	if err := bootstrapAdmin(ctx, db, logger); err != nil {
 		return err
 	}
+
+	backups := backup.NewScheduler(db.DB(), cfg.DataDir, version,
+		cfg.BackupEvery, cfg.BackupKeep, logger)
 
 	collector := metrics.New(db.Metrics(), logger)
 	dispatcher := alerts.New(db.AlertChannels(), logger)
@@ -185,6 +209,12 @@ func run() error {
 		Collector:        collector,
 		JWTSecret:        cfg.JWTSecret,
 		SessionTTL:       cfg.SessionTTL,
+		DataDir:          cfg.DataDir,
+		DB:               db.DB(),
+		Version:          version,
+		Snapshot:         backups.Snapshot,
+		BackupEvery:      cfg.BackupEvery,
+		BackupKeep:       cfg.BackupKeep,
 		ApplyConfig:      applyConfig,
 		UI:               ui,
 		MetricsRetention: cfg.MetricsRetention,
@@ -206,6 +236,7 @@ func run() error {
 	spawn("certificates", certs.Run)
 	spawn("accesslog", accessLog.Run)
 	spawn("alerts", dispatcher.Run)
+	spawn("backups", backups.Run)
 	spawn("websocket", apiServer.Run)
 
 	servers := []*namedServer{
@@ -400,6 +431,84 @@ func resetPassword(ctx context.Context, cfg *config.Config, username string) err
 	fmt.Fprintf(os.Stderr, "\n  new password for %q (%s):\n\n    ", user.Username, user.Role)
 	fmt.Println(password)
 	fmt.Fprintf(os.Stderr, "\n  Shown once. Existing sessions stay valid until they expire.\n\n")
+	return nil
+}
+
+// writeBackup copies the data directory into one archive and exits. It is the
+// scriptable half of the console's Download button, for a cron job that copies
+// the result somewhere else — which is the only kind of backup that survives
+// losing this machine.
+func writeBackup(ctx context.Context, cfg *config.Config, path string) error {
+	db, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Refusing to overwrite is deliberate: a backup command that silently
+	// replaces a file is one keystroke away from destroying the copy it was
+	// meant to add to.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	if err := backup.Create(ctx, db.DB(), cfg.DataDir, version, f); err != nil {
+		f.Close()
+		os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "\n  wrote %s (%d bytes)\n"+
+		"  This archive contains every private key and the session secret.\n"+
+		"  Treat it exactly as you would the server itself.\n\n", path, info.Size())
+	return nil
+}
+
+// restoreBackup replaces the data directory from an archive.
+//
+// It is a separate invocation rather than an API call because a running proxy
+// holds the database open: swapping the file underneath it would leave the
+// process serving from a handle to a file that no longer exists. Stop the
+// service, restore, start it again.
+func restoreBackup(cfg *config.Config, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	format, madeBy, created, err := backup.Describe(f)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "\n  %s\n    format:  %s\n    written: %s by %s\n\n",
+		path, format, created.Format(time.RFC1123), madeBy)
+
+	moved, err := backup.Restore(cfg.DataDir, f)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "  restored into %s\n", cfg.DataDir)
+	if moved != "" {
+		// Nothing was deleted. A restore is run in exactly the situation
+		// where a second mistake is most likely, so the old directory is
+		// left for the operator to remove once they are satisfied.
+		fmt.Fprintf(os.Stderr, "  the previous data directory is at %s\n"+
+			"  check the proxy starts, then remove it yourself\n", moved)
+	}
+	fmt.Fprint(os.Stderr, "\n")
 	return nil
 }
 

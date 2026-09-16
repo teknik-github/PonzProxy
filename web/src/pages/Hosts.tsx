@@ -295,6 +295,23 @@ function toInput(host: Host | null): HostInput {
         maxBodyBytes: 33554432,
         exempt: [],
       },
+      // Off, with wording ready to use: turning maintenance on during an
+      // incident should be one decision, not a decision and a writing
+      // exercise.
+      maintenance: {
+        enabled: false,
+        statusCode: 503,
+        title: "Down for maintenance",
+        message:
+          "We are making some changes and will be back shortly. Thank you for your patience.",
+        retryAfterSeconds: 300,
+        allowFrom: [],
+      },
+      errorPages: {
+        enabled: false,
+        title: "This site is temporarily unavailable",
+        message: "Something went wrong on our side. Please try again in a few moments.",
+      },
     }
   }
   return {
@@ -355,6 +372,11 @@ function toInput(host: Host | null): HostInput {
       maxBodyBytes: host.trafficLimits.maxBodyBytes,
       exempt: host.trafficLimits.exempt ?? [],
     },
+    maintenance: {
+      ...host.maintenance,
+      allowFrom: host.maintenance.allowFrom ?? [],
+    },
+    errorPages: { ...host.errorPages },
   }
 }
 
@@ -1037,6 +1059,173 @@ function HostSheet({
                     />
                   </FormField>
                 </div>
+              </>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Maintenance mode</h3>
+              <p className="text-muted-foreground text-xs">
+                Answers this host with a page instead of proxying it. Better
+                than stopping the backend: that tells visitors the site is
+                broken rather than being worked on, and looks like a real
+                outage in your own monitoring.
+              </p>
+            </div>
+
+            <CheckField
+              label="Show a maintenance page instead of serving this host"
+              checked={input.maintenance.enabled}
+              onChange={(v) =>
+                patch({ maintenance: { ...input.maintenance, enabled: v } })
+              }
+            />
+
+            {input.maintenance.enabled && (
+              <>
+                <FormField
+                  label="Heading"
+                  error={fieldError("maintenance.title")}
+                >
+                  <Input
+                    value={input.maintenance.title}
+                    onChange={(e) =>
+                      patch({ maintenance: { ...input.maintenance, title: e.target.value } })
+                    }
+                  />
+                </FormField>
+                <FormField
+                  label="Message"
+                  hint="Plain text. Line breaks are kept; markup is not, because this page is served from your own domain."
+                  error={fieldError("maintenance.message")}
+                >
+                  <textarea
+                    className="border-input bg-transparent dark:bg-input/30 min-h-20 w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none"
+                    value={input.maintenance.message}
+                    onChange={(e) =>
+                      patch({ maintenance: { ...input.maintenance, message: e.target.value } })
+                    }
+                  />
+                </FormField>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    label="Status"
+                    hint="503 is the one status that means 'come back later', and search engines treat it that way."
+                    error={fieldError("maintenance.statusCode")}
+                  >
+                    <Select
+                      value={String(input.maintenance.statusCode)}
+                      onValueChange={(v) =>
+                        patch({
+                          maintenance: { ...input.maintenance, statusCode: Number(v) },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="503">
+                          503 — temporarily unavailable
+                        </SelectItem>
+                        <SelectItem value="307">307 — temporary redirect</SelectItem>
+                        <SelectItem value="200">
+                          200 — OK (crawlers will index this page)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField
+                    label="Retry after (seconds)"
+                    hint="Sent as the Retry-After header. 0 omits it."
+                    error={fieldError("maintenance.retryAfterSeconds")}
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      value={input.maintenance.retryAfterSeconds}
+                      onChange={(e) =>
+                        patch({
+                          maintenance: {
+                            ...input.maintenance,
+                            retryAfterSeconds: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                </div>
+
+                <FormField
+                  label="Let these addresses through"
+                  hint="Your own address, so you can check the work before turning the page off. Addresses or CIDR ranges, comma separated."
+                  error={fieldError("maintenance.allowFrom")}
+                >
+                  <Input
+                    placeholder="203.0.113.9, 10.0.0.0/8"
+                    value={(input.maintenance.allowFrom ?? []).join(", ")}
+                    onChange={(e) =>
+                      patch({
+                        maintenance: {
+                          ...input.maintenance,
+                          allowFrom: e.target.value
+                            .split(",")
+                            .map((c) => c.trim())
+                            .filter(Boolean),
+                        },
+                      })
+                    }
+                  />
+                </FormField>
+              </>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Error page</h3>
+              <p className="text-muted-foreground text-xs">
+                What a visitor sees when no backend can be reached. Kept
+                separate from maintenance on purpose: saying "planned work"
+                during an unplanned outage is a lie a customer remembers.
+              </p>
+            </div>
+
+            <CheckField
+              label="Use my own wording for 502 and 503"
+              checked={input.errorPages.enabled}
+              onChange={(v) => patch({ errorPages: { ...input.errorPages, enabled: v } })}
+            />
+
+            {input.errorPages.enabled && (
+              <>
+                <FormField label="Heading" error={fieldError("errorPages.title")}>
+                  <Input
+                    value={input.errorPages.title}
+                    onChange={(e) =>
+                      patch({ errorPages: { ...input.errorPages, title: e.target.value } })
+                    }
+                  />
+                </FormField>
+                <FormField
+                  label="Message"
+                  hint="Plain text. Avoid naming the backend: a visitor cannot act on it, and it tells a prober how you are put together."
+                  error={fieldError("errorPages.message")}
+                >
+                  <textarea
+                    className="border-input bg-transparent dark:bg-input/30 min-h-20 w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none"
+                    value={input.errorPages.message}
+                    onChange={(e) =>
+                      patch({ errorPages: { ...input.errorPages, message: e.target.value } })
+                    }
+                  />
+                </FormField>
               </>
             )}
           </div>

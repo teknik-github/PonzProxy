@@ -60,6 +60,30 @@ export interface TrafficLimits {
   exempt: string[] | null
 }
 
+/** Maintenance answers a host with a page instead of proxying it. The
+ *  alternative people reach for — stopping the backend — tells visitors the
+ *  site is broken rather than being worked on, and looks like a real outage in
+ *  your own monitoring. */
+export interface Maintenance {
+  enabled: boolean
+  statusCode: number
+  title: string
+  message: string
+  retryAfterSeconds: number
+  /** Addresses that reach the backend anyway, so whoever is doing the work can
+   *  check that it worked. */
+  allowFrom: string[] | null
+}
+
+/** ErrorPages replaces what a visitor sees when no backend can be reached.
+ *  Separate from maintenance because saying "planned work" during an unplanned
+ *  outage is a lie a customer remembers. */
+export interface ErrorPages {
+  enabled: boolean
+  title: string
+  message: string
+}
+
 export interface Host {
   id: number
   name: string
@@ -79,6 +103,8 @@ export interface Host {
   guardian: Guardian
   cache: Cache
   trafficLimits: TrafficLimits
+  maintenance: Maintenance
+  errorPages: ErrorPages
   createdAt: string
   updatedAt: string
 }
@@ -192,6 +218,22 @@ export interface Snapshot {
   shareWindowSeconds: number
 }
 
+/* --------------------------------------------------------------- backup -- */
+
+export interface BackupSnapshot {
+  name: string
+  bytes: number
+  createdAt: string
+}
+
+export interface BackupStatus {
+  /** 0 when scheduled snapshots are off. */
+  everySeconds: number
+  keep: number
+  directory: string
+  snapshots: BackupSnapshot[] | null
+}
+
 /* ---------------------------------------------------------------- usage -- */
 
 /** One host's traffic over the reported window. Grouped by host rather than by
@@ -292,6 +334,8 @@ export interface HostInput {
     maxBytes: number
   }
   trafficLimits: TrafficLimits
+  maintenance: Maintenance
+  errorPages: ErrorPages
 }
 
 export interface CertificateInput {

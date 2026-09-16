@@ -13,6 +13,35 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Backups** — a snapshot of everything the proxy cannot rebuild: the
+  database, every certificate, the ACME account key and the session secret.
+  Written every 24 hours into `<data>/backups` keeping the newest seven, on
+  demand from the console, and from the command line with `--backup` for a
+  cron job that copies the result off the machine. `--restore` puts one back.
+
+  The database is copied with SQLite's `VACUUM INTO` rather than read from
+  disk: in WAL mode committed data is split between two files, so a plain copy
+  of a running database can be torn. A restore never deletes — the existing
+  data directory is renamed and left behind, because a restore happens in
+  exactly the circumstances where a second mistake is most likely.
+
+  The console says plainly what a local snapshot is worth. It survives a
+  deleted host and a corrupted database; it does not survive the disk it sits
+  on. A scheduled backup someone mistakes for off-site protection is worse
+  than none, because it buys false confidence.
+- **Maintenance mode** — a per-host switch that answers with a page instead of
+  proxying. Better than stopping the backend, which tells visitors the site is
+  broken rather than being worked on and is indistinguishable from a real
+  outage in your own monitoring. 503 by default, with `Retry-After`, and it is
+  not counted as a failure — planned maintenance that drives the error rate up
+  sets off exactly the alerting the window was booked to avoid. Addresses can
+  be allowed through, so whoever is doing the work can check that it worked.
+- **Custom error pages** — per-host wording for 502 and 503, kept separate from
+  maintenance because saying "planned work" during an unplanned outage is a lie
+  a customer remembers. Both pages are self-contained: no external stylesheet,
+  no image, no script, because they are served exactly when nothing else works.
+  Operator text is escaped, not rendered as markup, since the page is served
+  from the operator's own domain.
 - **Traffic limits** — a per-host bound on what one client address may ask for:
   a sustained request rate with burst headroom, a cap on requests in flight,
   and a maximum request body. Off, detect and block, the same three modes as
@@ -52,6 +81,10 @@ Every released version has a matching container image and a git tag, so
 
 ### Fixed
 
+- `--restore` created the data directory it was about to replace, because
+  loading the configuration writes a session secret. It then reported moving
+  aside a directory it had manufactured seconds earlier. Configuration is now
+  read without side effects for that command.
 - A health-check test could fail under load, because it counted probes on the
   server side and a request already on the wire can be counted after the probe
   loop has exited. It now measures what it meant to: that no *new* probe starts

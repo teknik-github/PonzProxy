@@ -22,7 +22,9 @@ const hostColumns = `
 	log_enabled, log_include_query, guardian_mode, guardian_max_uri,
 	cache_enabled, cache_ttl_ms, cache_max_ttl_ms, cache_max_object_bytes,
 	cache_max_bytes, limit_mode, limit_rps, limit_burst, limit_max_conns,
-	limit_max_body, created_at, updated_at`
+	limit_max_body, maint_enabled, maint_status, maint_title, maint_message,
+	maint_retry_after, error_page_enabled, error_page_title, error_page_message,
+	created_at, updated_at`
 
 func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -59,6 +61,9 @@ func (r *hostRepo) List(ctx context.Context) ([]domain.Host, error) {
 	if err := r.attachGuardianRules(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachMaintAllow(ctx, byID); err != nil {
+		return nil, err
+	}
 	if err := r.attachLimitExempt(ctx, byID); err != nil {
 		return nil, err
 	}
@@ -86,6 +91,9 @@ func (r *hostRepo) Get(ctx context.Context, id int64) (*domain.Host, error) {
 	if err := r.attachGuardianRules(ctx, byID); err != nil {
 		return nil, err
 	}
+	if err := r.attachMaintAllow(ctx, byID); err != nil {
+		return nil, err
+	}
 	if err := r.attachLimitExempt(ctx, byID); err != nil {
 		return nil, err
 	}
@@ -111,8 +119,10 @@ func (r *hostRepo) Create(ctx context.Context, h *domain.Host) error {
 				cache_enabled, cache_ttl_ms, cache_max_ttl_ms,
 				cache_max_object_bytes, cache_max_bytes,
 				limit_mode, limit_rps, limit_burst, limit_max_conns, limit_max_body,
+				maint_enabled, maint_status, maint_title, maint_message, maint_retry_after,
+				error_page_enabled, error_page_title, error_page_message,
 				created_at, updated_at
-			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			hostInsertArgs(h)...)
 		if err != nil {
 			return translateErr(err)
@@ -141,7 +151,11 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 				cache_enabled = ?, cache_ttl_ms = ?, cache_max_ttl_ms = ?,
 				cache_max_object_bytes = ?, cache_max_bytes = ?,
 				limit_mode = ?, limit_rps = ?, limit_burst = ?,
-				limit_max_conns = ?, limit_max_body = ?, updated_at = ?
+				limit_max_conns = ?, limit_max_body = ?,
+				maint_enabled = ?, maint_status = ?, maint_title = ?,
+				maint_message = ?, maint_retry_after = ?,
+				error_page_enabled = ?, error_page_title = ?, error_page_message = ?,
+				updated_at = ?
 			WHERE id = ?`,
 			hostUpdateArgs(h)...)
 		if err != nil {
@@ -172,6 +186,10 @@ func (r *hostRepo) Update(ctx context.Context, h *domain.Host) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM host_limit_exempt WHERE host_id = ?`, h.ID); err != nil {
+			return translateErr(err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM host_maint_allow WHERE host_id = ?`, h.ID); err != nil {
 			return translateErr(err)
 		}
 		return writeHostChildren(ctx, tx, h)
@@ -249,6 +267,38 @@ func (r *hostRepo) attachGuardianRules(ctx context.Context, byID map[int64]*doma
 		}
 	}
 	return translateErr(rows.Err())
+}
+
+// attachMaintAllow loads each host's maintenance bypass list and parses it
+// once, so the request path never parses a CIDR.
+func (r *hostRepo) attachMaintAllow(ctx context.Context, byID map[int64]*domain.Host) error {
+	if len(byID) == 0 {
+		return nil
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT host_id, cidr FROM host_maint_allow ORDER BY host_id, position`)
+	if err != nil {
+		return translateErr(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var hostID int64
+		var cidr string
+		if err := rows.Scan(&hostID, &cidr); err != nil {
+			return err
+		}
+		if h, ok := byID[hostID]; ok {
+			h.Maintenance.AllowFrom = append(h.Maintenance.AllowFrom, cidr)
+		}
+	}
+	if err := translateErr(rows.Err()); err != nil {
+		return err
+	}
+	for _, h := range byID {
+		h.Maintenance.Normalize()
+	}
+	return nil
 }
 
 // attachLimitExempt loads each host's exemptions and parses them once, so the
@@ -364,6 +414,13 @@ func writeHostChildren(ctx context.Context, tx *sql.Tx, h *domain.Host) error {
 			return translateErr(err)
 		}
 	}
+	for i, c := range h.Maintenance.AllowFrom {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO host_maint_allow (host_id, cidr, position) VALUES (?,?,?)`,
+			h.ID, c, i); err != nil {
+			return translateErr(err)
+		}
+	}
 	for i := range h.Upstreams {
 		u := &h.Upstreams[i]
 		u.HostID = h.ID
@@ -416,6 +473,9 @@ func hostInsertArgs(h *domain.Host) []any {
 		h.Cache.MaxObjectBytes, h.Cache.MaxBytes,
 		string(h.TrafficLimits.Mode), h.TrafficLimits.RequestsPerSecond,
 		h.TrafficLimits.Burst, h.TrafficLimits.MaxConcurrent, h.TrafficLimits.MaxBodyBytes,
+		h.Maintenance.Enabled, h.Maintenance.StatusCode, h.Maintenance.Title,
+		h.Maintenance.Message, h.Maintenance.RetryAfterSeconds,
+		h.ErrorPages.Enabled, h.ErrorPages.Title, h.ErrorPages.Message,
 		h.CreatedAt.Unix(), h.UpdatedAt.Unix(),
 	}
 }
@@ -437,6 +497,9 @@ func hostUpdateArgs(h *domain.Host) []any {
 		h.Cache.MaxObjectBytes, h.Cache.MaxBytes,
 		string(h.TrafficLimits.Mode), h.TrafficLimits.RequestsPerSecond,
 		h.TrafficLimits.Burst, h.TrafficLimits.MaxConcurrent, h.TrafficLimits.MaxBodyBytes,
+		h.Maintenance.Enabled, h.Maintenance.StatusCode, h.Maintenance.Title,
+		h.Maintenance.Message, h.Maintenance.RetryAfterSeconds,
+		h.ErrorPages.Enabled, h.ErrorPages.Title, h.ErrorPages.Message,
 		h.UpdatedAt.Unix(), h.ID,
 	}
 }
@@ -480,6 +543,9 @@ func scanHost(sc scanner) (*domain.Host, error) {
 		&h.Cache.MaxObjectBytes, &h.Cache.MaxBytes,
 		&limitMode, &h.TrafficLimits.RequestsPerSecond, &h.TrafficLimits.Burst,
 		&h.TrafficLimits.MaxConcurrent, &h.TrafficLimits.MaxBodyBytes,
+		&h.Maintenance.Enabled, &h.Maintenance.StatusCode, &h.Maintenance.Title,
+		&h.Maintenance.Message, &h.Maintenance.RetryAfterSeconds,
+		&h.ErrorPages.Enabled, &h.ErrorPages.Title, &h.ErrorPages.Message,
 		&created, &updated,
 	)
 	if err != nil {

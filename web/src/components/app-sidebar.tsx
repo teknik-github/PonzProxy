@@ -1,6 +1,7 @@
 import {
   IconActivity,
   IconAdjustments,
+  IconArchive,
   IconArrowsExchange2,
   IconBell,
   IconCertificate,
@@ -48,6 +49,8 @@ interface Props extends React.ComponentProps<typeof Sidebar> {
   accessLists: AccessList[]
   snapshot: Snapshot | null
   canEdit: boolean
+  /** How many backup snapshots exist, so the nav can say when there are none. */
+  backups: number
 }
 
 export function AppSidebar({
@@ -61,6 +64,7 @@ export function AppSidebar({
   accessLists,
   snapshot,
   canEdit,
+  backups,
   ...props
 }: Props) {
   // Certificates inside their renewal window are worth surfacing before they
@@ -72,6 +76,10 @@ export function AppSidebar({
   // How many hosts have limits switched on at all. A count rather than a
   // warning: limits being on is the intended state, not a problem.
   const limited = hosts.filter((h) => h.trafficLimits.mode !== "off").length
+
+  // Hosts showing a maintenance page. Worth surfacing because forgetting to
+  // switch it off is the classic way a deploy turns into an outage.
+  const maintenance = hosts.filter((h) => h.maintenance.enabled).length
 
   // Four groups rather than one list of twelve rows. The split follows the
   // questions an operator arrives with — what is happening, what do I serve,
@@ -99,7 +107,13 @@ export function AppSidebar({
           id: "hosts",
           title: "Hosts",
           icon: IconServer2,
-          badge: hosts.length > 0 ? String(hosts.length) : undefined,
+          badge:
+            maintenance > 0
+              ? `${maintenance} in maintenance`
+              : hosts.length > 0
+                ? String(hosts.length)
+                : undefined,
+          alarm: maintenance > 0,
         },
         { id: "redirects", title: "Redirects", icon: IconArrowsExchange2 },
         {
@@ -140,6 +154,15 @@ export function AppSidebar({
       title: "Settings",
       icon: IconAdjustments,
       items: [
+        {
+          id: "backups",
+          title: "Backups",
+          icon: IconArchive,
+          // A backup that is not happening is the kind of failure nobody
+          // notices until it matters, so the count is on the nav itself.
+          badge: backups > 0 ? String(backups) : "none",
+          alarm: backups === 0,
+        },
         { id: "users", title: "Users", icon: IconUsersGroup },
         { id: "account", title: "Account", icon: IconUserCog },
       ],

@@ -48,6 +48,13 @@ type Config struct {
 	AccessLogRetention time.Duration
 	AccessLogMaxRows   int
 
+	// BackupEvery is how often a local snapshot of the data directory is
+	// written, and BackupKeep how many are kept. A local copy protects
+	// against operator error and corruption; it is on the same disk, so it
+	// does not protect against losing that disk. Zero disables it.
+	BackupEvery time.Duration
+	BackupKeep  int
+
 	// LogLevel and LogFormat configure the process logger.
 	LogLevel  string
 	LogFormat string
@@ -64,9 +71,29 @@ const (
 	LetsEncryptStaging    = "https://acme-staging-v02.api.letsencrypt.org/directory"
 )
 
-// Load builds a Config from the environment, applying defaults for anything
-// unset. It creates DataDir if needed so callers can assume it exists.
+// Load builds a Config from the environment and prepares the data directory,
+// so callers can assume it exists and that a session secret is in place.
 func Load() (*Config, error) {
+	c, err := parse()
+	if err != nil {
+		return nil, err
+	}
+	if err := c.prepare(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// LoadReadOnly builds the same Config without touching the disk.
+//
+// It exists for --restore, which is about to replace the data directory: Load
+// would create that directory and write a fresh session secret into it, and
+// the restore would then dutifully report moving aside a directory it had
+// manufactured seconds earlier. JWTSecret is left unset, which is safe because
+// no command using this ever serves a request.
+func LoadReadOnly() (*Config, error) { return parse() }
+
+func parse() (*Config, error) {
 	c := &Config{
 		DataDir:            env("PONZ_DATA_DIR", "./data"),
 		HTTPAddr:           env("PONZ_HTTP_ADDR", ":80"),
@@ -79,6 +106,8 @@ func Load() (*Config, error) {
 		MetricsRetention:   envDuration("PONZ_METRICS_RETENTION", 30*24*time.Hour),
 		AccessLogRetention: envDuration("PONZ_ACCESS_LOG_RETENTION", 7*24*time.Hour),
 		AccessLogMaxRows:   envInt("PONZ_ACCESS_LOG_MAX_ROWS", 500_000),
+		BackupEvery:        envDuration("PONZ_BACKUP_EVERY", 24*time.Hour),
+		BackupKeep:         envInt("PONZ_BACKUP_KEEP", 7),
 		LogLevel:           env("PONZ_LOG_LEVEL", "info"),
 		LogFormat:          env("PONZ_LOG_FORMAT", "text"),
 
@@ -90,15 +119,20 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("resolve data dir: %w", err)
 	}
 	c.DataDir = abs
-	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create data dir: %w", err)
-	}
-
-	c.JWTSecret, err = loadOrCreateSecret(c.DataDir)
-	if err != nil {
-		return nil, err
-	}
 	return c, nil
+}
+
+// prepare creates the data directory and the session secret.
+func (c *Config) prepare() error {
+	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
+	}
+	secret, err := loadOrCreateSecret(c.DataDir)
+	if err != nil {
+		return err
+	}
+	c.JWTSecret = secret
+	return nil
 }
 
 // DBPath is the SQLite file backing config and metrics history.

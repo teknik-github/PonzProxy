@@ -62,6 +62,13 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Before the traffic limits on purpose: a maintenance page reaches no
+	// backend and costs a few hundred bytes, so refusing it with 429 would
+	// tell a visitor "too many requests" when the truth is "planned work".
+	if e.serveMaintenance(w, r, rt, start) {
+		return
+	}
+
 	// Before the access list on purpose: basic auth compares a bcrypt hash,
 	// so a client inventing credentials could otherwise buy a thousand
 	// bcrypt comparisons a second from one connection.
@@ -284,7 +291,8 @@ func (e *Engine) serveUnavailable(rec *recorder, r *http.Request, rt *route,
 	if errors.Is(cause, balancer.ErrNoBackends) {
 		msg = "This host has no upstream configured."
 	}
-	writeProblem(rec, http.StatusServiceUnavailable, msg)
+	title, body := errorPage(&rt.host.ErrorPages, http.StatusServiceUnavailable, msg)
+	writePage(rec, http.StatusServiceUnavailable, title, body, 0)
 
 	e.record(r, rt, start, http.StatusServiceUnavailable, rec.written, true)
 	e.logger.Warn("no upstream available",
@@ -305,7 +313,9 @@ func (e *Engine) serveBadGateway(rec *recorder, r *http.Request, rt *route,
 		return
 	}
 
-	writeProblem(rec, http.StatusBadGateway, "The upstream server could not be reached.")
+	title, body := errorPage(&rt.host.ErrorPages, http.StatusBadGateway,
+		"The upstream server could not be reached.")
+	writePage(rec, http.StatusBadGateway, title, body, 0)
 	e.record(r, rt, start, http.StatusBadGateway, rec.written, true)
 	e.logger.Warn("upstream request failed",
 		"host", rt.host.Name, "upstream", backend.Key(), "error", cause)

@@ -30,6 +30,8 @@ type hostPayload struct {
 	Guardian         guardianPayload      `json:"guardian"`
 	Cache            cachePayload         `json:"cache"`
 	TrafficLimits    limitsPayload        `json:"trafficLimits"`
+	Maintenance      domain.Maintenance   `json:"maintenance"`
+	ErrorPages       domain.ErrorPages    `json:"errorPages"`
 }
 
 // limitsPayload is the per-host traffic limit. It mirrors domain.TrafficLimits
@@ -149,6 +151,11 @@ func (p hostPayload) toDomain() domain.Host {
 			MaxBodyBytes:      p.TrafficLimits.MaxBodyBytes,
 			Exempt:            p.TrafficLimits.Exempt,
 		},
+		// Taken as the domain types directly: they have no unit conversion
+		// to do, and a payload that only restates its target is a place for
+		// the two to drift apart.
+		Maintenance: p.Maintenance,
+		ErrorPages:  p.ErrorPages,
 	}
 	for _, u := range p.Upstreams {
 		h.Upstreams = append(h.Upstreams, domain.Upstream{

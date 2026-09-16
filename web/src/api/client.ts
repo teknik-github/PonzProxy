@@ -20,6 +20,7 @@ import type {
   Role,
   Series,
   Snapshot,
+  BackupStatus,
   UsageReport,
   User,
   UserInput,
@@ -332,6 +333,20 @@ export const api = {
     })
     return request<UsageReport>(`/api/metrics/usage?${query.toString()}`)
   },
+
+  backupStatus: () => request<BackupStatus>('/api/backups'),
+
+  createBackup: () => request<void>('/api/backups', { method: 'POST' }),
+
+  deleteBackup: (name: string) =>
+    request<void>(`/api/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  /** Downloads a freshly taken archive rather than the newest file on disk:
+   *  someone clicking this before an upgrade means "the state as it is now". */
+  downloadBackup: () => download('/api/backups/download', 'ponzproxy-backup.tar.gz'),
+
+  downloadBackupFile: (name: string) =>
+    download(`/api/backups/${encodeURIComponent(name)}`, name),
 
   downloadUsage: (params: { from: Date; to: Date; format: 'xlsx' | 'pdf' }) => {
     const query = new URLSearchParams({

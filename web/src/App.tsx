@@ -17,6 +17,7 @@ import { Alerts } from "@/pages/Alerts"
 import { Hosts } from "@/pages/Hosts"
 import { Redirects } from "@/pages/Redirects"
 import { SignIn } from "@/pages/SignIn"
+import { Backups } from "@/pages/Backups"
 import { Traffic } from "@/pages/Traffic"
 import { TrafficLimits } from "@/pages/TrafficLimits"
 import { Usage } from "@/pages/Usage"
@@ -32,6 +33,9 @@ export function App() {
   const [hosts, setHosts] = useState<Host[]>([])
   const [certificates, setCertificates] = useState<Certificate[]>([])
   const [accessLists, setAccessLists] = useState<AccessList[]>([])
+  // Only the count, and only for admins: the nav says when there are no
+  // backups at all, which is the state worth noticing from any screen.
+  const [backupCount, setBackupCount] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const { snapshot, link } = useLiveFeed(user !== null)
@@ -49,6 +53,17 @@ export function App() {
   }, [user])
 
   useEffect(refresh, [refresh])
+
+  useEffect(() => {
+    if (!user || user.role !== "admin") return
+    api
+      .backupStatus()
+      .then((s) => setBackupCount((s.snapshots ?? []).length))
+      .catch(() => {
+        // A failure here must not colour the nav as "no backups" — that
+        // would be a claim the console cannot support.
+      })
+  }, [user, section])
 
   if (checking) {
     // A blank frame rather than a spinner: the check is one request, and a
@@ -87,6 +102,7 @@ export function App() {
         accessLists={accessLists}
         snapshot={snapshot}
         canEdit={canEdit}
+        backups={backupCount}
       />
       <SidebarInset>
         <SiteHeader section={section} link={link} />
@@ -170,6 +186,7 @@ export function App() {
                 />
               )}
               {section === "usage" && <Usage />}
+              {section === "backups" && <Backups canEdit={canEdit} />}
               {section === "alerts" && <Alerts canEdit={canEdit} />}
               {section === "users" && <Users canEdit={canEdit} />}
               {section === "account" && <Account />}
