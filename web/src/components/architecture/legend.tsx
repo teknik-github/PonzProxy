@@ -10,8 +10,8 @@ const TRAIL: { letter: string; label: string }[] = [
   { letter: "L", label: "Access log" },
 ]
 
-/** Legend spells out the three things the diagram encodes without words:
- *  line weight, movement, and the letters in front of each host.
+/** Legend spells out the four things the diagram encodes without words:
+ *  line weight, colour, movement, and the letters in front of each host.
  *
  *  It is deliberately not collapsible. An operator reads this screen once a
  *  month, under pressure, and a legend hidden behind a disclosure is a legend
@@ -49,20 +49,25 @@ export function Legend() {
           swatch={
             <svg width="44" height="16" aria-hidden="true" className="shrink-0">
               <line
-                x1="2" y1="8" x2="42" y2="8"
+                x1="2" y1="5" x2="42" y2="5"
                 strokeWidth="5" strokeLinecap="round"
-                className="stroke-muted-foreground" opacity="0.32"
+                className="stroke-emerald-500" opacity="0.4"
               />
               <line
-                x1="2" y1="8" x2="42" y2="8"
+                x1="2" y1="5" x2="42" y2="5"
                 strokeWidth="2.5" strokeLinecap="round" strokeDasharray="4 10"
-                className="stroke-foreground" opacity="0.55"
+                className="stroke-emerald-500" opacity="0.9"
+              />
+              <line
+                x1="2" y1="13" x2="42" y2="13"
+                strokeWidth="5" strokeLinecap="round"
+                className="stroke-muted-foreground" opacity="0.16"
               />
             </svg>
           }
         >
-          Dashes travel at the current request rate, in six steps. A still link
-          is carrying nothing right now.
+          Green means the link is carrying traffic, and its dashes travel at the
+          current request rate in six steps. Grey and still is up but idle.
         </Item>
 
         <Item

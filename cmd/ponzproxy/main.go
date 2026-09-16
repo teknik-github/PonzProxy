@@ -11,12 +11,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -46,10 +48,24 @@ func main() {
 }
 
 func run() error {
+	// The only flag the process takes. Everything else is configured by
+	// environment variables, because everything else is a setting a running
+	// container needs, while this is a one-shot recovery action.
+	resetUser := flag.String("reset-password", "",
+		"reset the named account to a freshly generated password, print it, and exit")
+	flag.Parse()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+
+	if *resetUser != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return resetPassword(ctx, cfg, *resetUser)
+	}
+
 	logger := logging.New(cfg.LogLevel, cfg.LogFormat)
 	logger.Info("starting ponzproxy", "version", version, "dataDir", cfg.DataDir)
 
@@ -328,6 +344,77 @@ func bootstrapAdmin(ctx context.Context, db *store.Store, logger *slog.Logger) e
 		"  This is shown once. Change it after signing in.\n\n", password)
 	logger.Info("created the initial admin account", "username", "admin")
 	return nil
+}
+
+// resetPassword generates a new password for an existing account, stores it
+// and prints it. It is the only way back in for an operator who has forgotten
+// the last administrator's password: the dashboard can change a password but
+// not recover one, and the alternative is editing the SQLite file by hand.
+//
+// Requiring shell access to the machine is the whole security model here —
+// anyone who has that can already edit the database directly, so this adds no
+// reachable privilege. For the same reason the new password is generated
+// rather than taken as an argument: a password on the command line ends up in
+// the shell history and in every ps listing on the box.
+//
+// It is safe to run while the server is up. SQLite is opened in WAL mode, and
+// the API reads the stored hash on every sign-in, so the new password works
+// straight away without a restart.
+func resetPassword(ctx context.Context, cfg *config.Config, username string) error {
+	db, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	users := db.Users()
+	name := domain.NormalizeUsername(username)
+	user, err := users.GetByUsername(ctx, name)
+	if errors.Is(err, domain.ErrNotFound) {
+		// Someone who has forgotten a password may well have forgotten the
+		// username too, and this is a local-only command, so naming the
+		// accounts costs nothing and saves a round of guessing.
+		return fmt.Errorf("no account named %q%s", name, knownAccounts(ctx, users))
+	}
+	if err != nil {
+		return fmt.Errorf("look up %q: %w", name, err)
+	}
+
+	password, err := randomPassword()
+	if err != nil {
+		return err
+	}
+	hash, err := api.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	if err := users.UpdatePassword(ctx, user.ID, hash); err != nil {
+		return fmt.Errorf("reset the password for %q: %w", user.Username, err)
+	}
+
+	// The password alone goes to stdout so the command can be piped into a
+	// password manager; the prose goes to stderr so piping does not capture
+	// it. Sessions already signed in are JWTs and stay valid until they
+	// expire — this closes the front door, not the ones already open.
+	fmt.Fprintf(os.Stderr, "\n  new password for %q (%s):\n\n    ", user.Username, user.Role)
+	fmt.Println(password)
+	fmt.Fprintf(os.Stderr, "\n  Shown once. Existing sessions stay valid until they expire.\n\n")
+	return nil
+}
+
+// knownAccounts renders ", known accounts: a, b" for an error message, or an
+// empty string when the list cannot be read — a failure to list is not worth
+// replacing the real error with.
+func knownAccounts(ctx context.Context, users domain.UserRepository) string {
+	all, err := users.List(ctx)
+	if err != nil || len(all) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(all))
+	for _, u := range all {
+		names = append(names, u.Username)
+	}
+	return ". Known accounts: " + strings.Join(names, ", ")
 }
 
 func randomPassword() (string, error) {

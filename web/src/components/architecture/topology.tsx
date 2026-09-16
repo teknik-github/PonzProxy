@@ -137,8 +137,8 @@ export function Topology({ model, width, selection, onSelect }: Props) {
 
 /** Link draws one connection twice: a wide backing stroke whose width is the
  *  share of traffic, and a thin dashed stroke on top that moves at a speed set
- *  by the request rate. Width answers "how much of the load", motion answers
- *  "is anything happening right now" — and they are genuinely different
+ *  by the request rate. Width answers "how much of the load", colour and motion
+ *  answer "is anything happening right now" — and they are genuinely different
  *  questions on an idle proxy with a lopsided weighting. */
 function Link({
   d,
@@ -154,6 +154,12 @@ function Link({
   muted?: boolean
 }) {
   const duration = bad || muted ? null : flowDuration(rps)
+  // A non-null duration is exactly the "carrying traffic right now" state, so
+  // it decides the colour as well as the motion: green for flowing, red for
+  // down or ejected, grey for a link that is up but idle. Without the green a
+  // live link and an idle one differ only by a moving dash, which is invisible
+  // in a screenshot and to anyone running prefers-reduced-motion.
+  const flowing = duration !== null
   return (
     <g>
       <path
@@ -162,8 +168,14 @@ function Link({
         strokeLinecap="round"
         strokeWidth={width}
         strokeDasharray={bad || muted ? "5 5" : undefined}
-        className={bad ? "stroke-destructive" : "stroke-muted-foreground"}
-        opacity={bad ? 0.65 : muted ? 0.3 : rps > 0 ? 0.32 : 0.16}
+        className={
+          bad
+            ? "stroke-destructive"
+            : flowing
+              ? "stroke-emerald-500"
+              : "stroke-muted-foreground"
+        }
+        opacity={bad ? 0.65 : muted ? 0.3 : flowing ? 0.4 : 0.16}
       />
       {duration !== null && (
         <path
@@ -171,8 +183,8 @@ function Link({
           fill="none"
           strokeLinecap="round"
           strokeWidth={Math.max(1, width * 0.5)}
-          className="ppx-flow stroke-foreground"
-          opacity={0.55}
+          className="ppx-flow stroke-emerald-500"
+          opacity={0.9}
           style={{ animationDuration: `${duration}s` }}
         />
       )}

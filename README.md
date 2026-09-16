@@ -48,6 +48,27 @@ Pin a version rather than `latest` for anything you care about:
 `ghcr.io/teknik-github/ponzproxy:0.1.0`. Every release tag has a matching
 image, and [CHANGELOG.md](CHANGELOG.md) says what changed in each.
 
+### If you lose the admin password
+
+The console can change a password but not recover one. Run this on the machine
+holding the data directory:
+
+```sh
+./bin/ponzproxy --reset-password admin
+# with Docker:
+docker compose -f deploy/docker-compose.yml exec ponzproxy ponzproxy --reset-password admin
+```
+
+It prints a freshly generated password on stdout — nothing else, so
+`--reset-password admin | your-password-manager` works — and can be run while
+the server is up: the new password takes effect on the next sign-in with no
+restart. Sessions already signed in stay valid until they expire.
+
+The password is generated rather than passed as an argument, because an
+argument would land in your shell history and in every `ps` listing on the box.
+The safeguard is that you need shell access to the data directory, which is
+already enough to edit the database by hand.
+
 ## Ports
 
 | Port   | Serves                                                  |

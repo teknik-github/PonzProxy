@@ -13,12 +13,19 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **`--reset-password <user>`** — recovers an account whose password is lost.
+  The console could change a password but never recover one, so forgetting the
+  last administrator's password meant editing SQLite by hand. It prints a
+  generated password on stdout and can be run against a live server; the new
+  password works on the next sign-in without a restart.
 - **Request path** — a live diagram of internet → proxy → hosts → upstreams,
   drawn from the existing WebSocket feed. Line weight is each backend's share
   of the traffic, so a 5:2:1 weighting and an even split look different without
-  reading a number, and what sits in front of each host — TLS, redirect, access
-  list, inspection, log — is a row of five squares in the order the proxy
-  applies them.
+  reading a number; a link turns green and its dashes travel while it is
+  carrying requests, and red and dashed when the backend is out of rotation, so
+  "up but idle" and "up and busy" are not drawn the same. What sits in front
+  of each host — TLS, redirect, access list, inspection, log — is a row of five
+  squares in the order the proxy applies them.
 - **Cache assets** — per-host in-memory cache for static paths, with an LRU
   budget and a per-object limit. The origin always wins: `no-store`,
   `no-cache`, `private` and a past `Expires` all refuse a response whatever the
