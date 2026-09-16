@@ -17,7 +17,10 @@ services:
     # build:
     #   context: .
     #   dockerfile: deploy/Dockerfile
-    container_name: ponzproxy
+    # No container_name on purpose: compose names the container after the
+    # directory this file sits in, so two installations on one machine are two
+    # separate projects rather than a name collision. Every documented command
+    # addresses the service, `ponzproxy`, which does not change.
     restart: unless-stopped
     ports:
       # Override any of these in a .env file next to this one when the port is

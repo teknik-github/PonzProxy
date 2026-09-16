@@ -11,6 +11,21 @@ Every released version has a matching container image and a git tag, so
 
 ## [Unreleased]
 
+### Added
+
+- **`install.sh`** — one command sets up a machine from nothing, installing
+  Docker Engine first when it is missing. Re-running it upgrades in place and
+  keeps the existing `.env` and data volume. `--dry-run` prints every command
+  it would run and changes nothing, which is the least a script asking to be
+  piped into a shell can offer.
+
+### Changed
+
+- The compose file no longer pins `container_name`, so two installations on one
+  machine are two compose projects rather than a name collision. Every
+  documented command addresses the service, which has not changed; `docker logs
+  ponzproxy` becomes `docker compose logs`.
+
 ## [0.2.1] - 2026-09-16
 
 ### Fixed

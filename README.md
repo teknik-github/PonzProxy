@@ -26,8 +26,25 @@ make            # builds the dashboard and the binary into bin/ponzproxy
 On first start it creates an `admin` account and prints a generated password
 once. Open the console on <http://localhost:8080> and change it.
 
-With Docker — no build, and no clone. One file is the whole installation; the
-image is published for `linux/amd64` and `linux/arm64`:
+With Docker — no build, and no clone. The installer sets up Docker Engine too
+if the machine does not have it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/teknik-github/PonzProxy/main/install.sh | sh
+```
+
+It prints the generated admin password at the end, and re-running it later
+upgrades in place without touching your configuration or your data. Pass
+`--help` for the options, or `--dry-run` to see every command it would run
+before it runs any:
+
+```sh
+curl -fsSL .../install.sh | sh -s -- --dry-run
+curl -fsSL .../install.sh | sh -s -- --console-port 9090 --acme-email you@example.com
+```
+
+Prefer to do it by hand? One file is the whole installation; the image is
+published for `linux/amd64` and `linux/arm64`:
 
 ```sh
 curl -O https://raw.githubusercontent.com/teknik-github/PonzProxy/main/docker-compose.yml
@@ -35,8 +52,7 @@ docker compose up -d
 docker compose logs | grep -A3 "first account"
 ```
 
-That prints the generated admin password once. The console is then on
-<http://localhost:8080>, bound to localhost only.
+Either way the console is on <http://localhost:8080>, bound to localhost only.
 
 Settings go in a `.env` next to the compose file rather than in the file
 itself, so an upgrade can replace the compose file without losing them.
