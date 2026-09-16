@@ -76,6 +76,11 @@ type Options struct {
 	BackupEvery time.Duration
 	BackupKeep  int
 
+	// MetricsFlush is how often counters are folded into a persisted
+	// sample. The history endpoint needs it to say how much traffic time
+	// the newest, still-filling bucket represents.
+	MetricsFlush time.Duration
+
 	// MetricsRetention is how far back samples are kept. The usage report
 	// says so, because a bandwidth figure for a window longer than this
 	// covers less time than it claims to.

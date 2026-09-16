@@ -80,6 +80,10 @@ func (c *Collector) flush(ctx context.Context) {
 	}
 	c.mu.Unlock()
 
+	// Recorded even when nothing was written: an interval with no traffic
+	// is still an interval whose absence of requests is now known.
+	c.lastFlush.Store(now.UnixNano())
+
 	if len(samples) == 0 {
 		return
 	}

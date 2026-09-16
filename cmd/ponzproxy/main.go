@@ -217,6 +217,7 @@ func run() error {
 		BackupKeep:       cfg.BackupKeep,
 		ApplyConfig:      applyConfig,
 		UI:               ui,
+		MetricsFlush:     cfg.MetricsFlush,
 		MetricsRetention: cfg.MetricsRetention,
 		Logger:           logger,
 	})

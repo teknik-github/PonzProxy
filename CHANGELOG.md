@@ -81,6 +81,14 @@ Every released version has a matching container image and a git tag, so
 
 ### Fixed
 
+- **"Requests over time" ended in a cliff.** The newest bucket is always still
+  filling — ten seconds into a minute it holds a sixth of a minute's requests —
+  so a chart of raw counts showed traffic falling off a wall at the right-hand
+  edge, every minute, on every window. The chart now plots requests per second
+  and leaves the unfinished bucket out: how much of it has reached the database
+  depends on when the sample flush landed inside it, so any figure drawn there
+  would be part guesswork. The live number above the chart is what answers
+  "now", and it is finally in the same unit as the chart under it.
 - `--restore` created the data directory it was about to replace, because
   loading the configuration writes a session secret. It then reported moving
   aside a directory it had manufactured seconds earlier. Configuration is now

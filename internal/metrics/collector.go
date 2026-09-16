@@ -121,6 +121,12 @@ type Collector struct {
 	startedAt time.Time
 	cpu       cpuSampler
 
+	// lastFlush is when counters were last folded into a persisted sample.
+	// History only covers traffic up to that moment, so a chart asking for
+	// the rate of the bucket still filling has to divide by the span that
+	// actually reached the database, not by the span since it started.
+	lastFlush atomic.Int64
+
 	mu    sync.RWMutex
 	hosts map[int64]*hostState
 	// shares holds each backend's rolling request count, advanced by the
@@ -149,6 +155,16 @@ func (c *Collector) poolInfo() []PoolInfo {
 		return nil
 	}
 	return c.pools.MetricsPools()
+}
+
+// LastFlush reports when the newest sample was written, or the zero time when
+// nothing has been flushed yet.
+func (c *Collector) LastFlush() time.Time {
+	ns := c.lastFlush.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns).UTC()
 }
 
 // SetPoolProvider wires in the source of live backend state.

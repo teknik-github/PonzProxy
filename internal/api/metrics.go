@@ -12,19 +12,28 @@ import (
 // seriesPoint is one bucket of the historical chart. Rates are precomputed
 // here because only the server knows how wide each bucket is.
 type seriesPoint struct {
-	Timestamp      time.Time `json:"timestamp"`
-	Requests       uint64    `json:"requests"`
-	RequestsPerSec float64   `json:"requestsPerSec"`
-	Status2xx      uint64    `json:"status2xx"`
-	Status3xx      uint64    `json:"status3xx"`
-	Status4xx      uint64    `json:"status4xx"`
-	Status5xx      uint64    `json:"status5xx"`
-	StatusError    uint64    `json:"statusError"`
-	BytesIn        uint64    `json:"bytesIn"`
-	BytesOut       uint64    `json:"bytesOut"`
-	MeanLatencyMS  float64   `json:"meanLatencyMs"`
-	MaxLatencyMS   uint64    `json:"maxLatencyMs"`
-	ErrorRate      float64   `json:"errorRate"`
+	Timestamp time.Time `json:"timestamp"`
+	Requests  uint64    `json:"requests"`
+	// RequestsPerSec is Requests over the part of the bucket that has
+	// actually elapsed, which for every bucket but the last is its whole
+	// width. See Partial.
+	RequestsPerSec float64 `json:"requestsPerSec"`
+	// Partial marks a bucket that is still filling. Its Requests count is
+	// a fraction of what the bucket will hold, so plotting the count makes
+	// live traffic look like it fell off a cliff at the right-hand edge of
+	// every chart. The rate does not have that problem, which is why the
+	// chart draws the rate and the tooltip shows both.
+	Partial       bool    `json:"partial"`
+	Status2xx     uint64  `json:"status2xx"`
+	Status3xx     uint64  `json:"status3xx"`
+	Status4xx     uint64  `json:"status4xx"`
+	Status5xx     uint64  `json:"status5xx"`
+	StatusError   uint64  `json:"statusError"`
+	BytesIn       uint64  `json:"bytesIn"`
+	BytesOut      uint64  `json:"bytesOut"`
+	MeanLatencyMS float64 `json:"meanLatencyMs"`
+	MaxLatencyMS  uint64  `json:"maxLatencyMs"`
+	ErrorRate     float64 `json:"errorRate"`
 }
 
 type seriesResponse struct {
@@ -113,23 +122,95 @@ func (s *Server) handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 		From:       from,
 		To:         to,
 		Resolution: resolution,
-		Points:     toSeries(samples, resolution),
+		Points:     toSeries(samples, resolution, s.historyNow(), s.flushInterval()),
 	})
+}
+
+// historyNow is the instant history actually reaches.
+//
+// Not time.Now(): counters are folded into samples on an interval, so the
+// newest few seconds of traffic have not been written yet. Dividing the
+// still-filling bucket by the time since it started would therefore report a
+// rate low by however long ago the last flush was — a small, permanent dip on
+// the right-hand edge of every chart.
+func (s *Server) historyNow() time.Time {
+	if s.opts.Collector != nil {
+		if at := s.opts.Collector.LastFlush(); !at.IsZero() {
+			return at
+		}
+	}
+	return time.Now().UTC()
+}
+
+// partialSpan is roughly how much traffic time the newest bucket represents.
+//
+// Only roughly, and that is the point. Counters are folded into a sample on a
+// fixed interval and stamped with the moment of the flush, so how much traffic
+// a half-open bucket holds depends on where the flush ticker's phase happens
+// to sit relative to the bucket boundary — anywhere across a whole interval.
+// An earlier version of this tried to model that and produced a newest point
+// that read 61/s among neighbours at 47/s, then one that climbed through the
+// minute to meet them. Neither was a number worth plotting.
+//
+// So the estimate stays deliberately simple, the bucket is marked Partial, and
+// the chart leaves it out. The figure is still worth returning: a caller that
+// wants "how is the current minute going" gets something far closer than the
+// raw count divided by the nominal width.
+func partialSpan(bucketStart, through time.Time, width, flush time.Duration) time.Duration {
+	span := through.Sub(bucketStart)
+	if span > width {
+		return width
+	}
+	// A bucket that exists at all has had at least one flush land in it.
+	if span < flush {
+		return flush
+	}
+	return span
+}
+
+// flushInterval is how often counters become a sample.
+func (s *Server) flushInterval() time.Duration {
+	if s.opts.MetricsFlush > 0 {
+		return s.opts.MetricsFlush
+	}
+	return 10 * time.Second
 }
 
 // maxBuckets bounds one chart request. 5000 points is already far more than a
 // screen can show.
 const maxBuckets = 5000
 
-func toSeries(samples []domain.Sample, resolution domain.Resolution) []seriesPoint {
-	seconds := resolution.Duration().Seconds()
+// toSeries turns stored samples into chart points.
+//
+// through is the instant the stored data actually reaches — the last flush,
+// not the wall clock — and flush is how often counters are folded into a
+// sample. Both are needed to say how much time the newest bucket represents;
+// see partialSpan.
+func toSeries(samples []domain.Sample, resolution domain.Resolution,
+	through time.Time, flush time.Duration) []seriesPoint {
+
+	width := resolution.Duration()
 	points := make([]seriesPoint, 0, len(samples))
 
 	for _, s := range samples {
+		// A bucket whose end is still in the future holds only the part of
+		// it that has happened. Dividing by the full width would report a
+		// rate that falls steadily towards the start of every minute and
+		// recovers by the end of it — an artefact, not traffic.
+		elapsed := width.Seconds()
+		partial := s.Timestamp.Add(width).After(through)
+		if partial {
+			elapsed = partialSpan(s.Timestamp, through, width, flush).Seconds()
+		}
+		if elapsed <= 0 {
+			elapsed = width.Seconds()
+		}
+
 		p := seriesPoint{
 			Timestamp:      s.Timestamp,
 			Requests:       s.Requests,
-			RequestsPerSec: float64(s.Requests) / seconds,
+			Partial:        partial,
+			RequestsPerSec: float64(s.Requests) / elapsed,
 			Status2xx:      s.Status[domain.Status2xx],
 			Status3xx:      s.Status[domain.Status3xx],
 			Status4xx:      s.Status[domain.Status4xx],

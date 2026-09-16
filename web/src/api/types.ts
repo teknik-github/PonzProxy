@@ -265,7 +265,12 @@ export type Resolution = 'minute' | 'hour' | 'day'
 export interface SeriesPoint {
   timestamp: string
   requests: number
+  /** Requests over the part of the bucket that has elapsed. For every bucket
+   *  but the last that is its whole width; for the last it is less, which is
+   *  what stops a still-filling bucket from looking like a collapse. */
   requestsPerSec: number
+  /** True for a bucket that is still filling. */
+  partial: boolean
   status2xx: number
   status3xx: number
   status4xx: number

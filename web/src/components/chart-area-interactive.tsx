@@ -40,21 +40,33 @@ const WINDOWS = {
 type WindowKey = keyof typeof WINDOWS
 
 const chartConfig = {
-  served: { label: "Served", color: "var(--chart-2)" },
-  failed: { label: "Failed", color: "var(--destructive)" },
+  served: { label: "Served/s", color: "var(--chart-2)" },
+  failed: { label: "Failed/s", color: "var(--destructive)" },
 } satisfies ChartConfig
 
 interface Row {
   time: string
+  /** Requests per second, not the bucket's raw count — see toRows. */
   served: number
   failed: number
 }
 
-/** ChartAreaInteractive plots request volume over the selected window.
+/** ChartAreaInteractive plots request rate over the selected window.
  *
- *  Failures are stacked under the served count rather than drawn on a separate
+ *  Failures are stacked under the served rate rather than drawn on a separate
  *  chart: the question is always "how much of that traffic failed", and two
- *  charts would force an operator to line up timestamps by eye. */
+ *  charts would force an operator to line up timestamps by eye.
+ *
+ *  It plots a rate rather than each bucket's raw count, and leaves the newest
+ *  bucket out entirely.
+ *
+ *  Both for the same reason. The newest bucket is always still filling: ten
+ *  seconds into a minute it holds a sixth of a minute's traffic, so a chart of
+ *  counts ended in a cliff that looked like the site had just died — every
+ *  minute, on every window. Plotting a rate fixes the units; leaving the
+ *  unfinished bucket out fixes the rest, because how much of it has actually
+ *  reached the database depends on flush timing and any figure drawn there
+ *  would be part guesswork. The live number above the chart answers "now". */
 export function ChartAreaInteractive() {
   const isMobile = useIsMobile()
   const [range, setRange] = React.useState<WindowKey>("1h")
@@ -92,9 +104,10 @@ export function ChartAreaInteractive() {
         <CardTitle>Requests over time</CardTitle>
         <CardDescription>
           <span className="hidden @[540px]/card:block">
-            Total requests per bucket, with failures stacked underneath
+            Requests per second, with failures stacked underneath. The
+            current bucket is still filling and is not drawn.
           </span>
-          <span className="@[540px]/card:hidden">Requests and failures</span>
+          <span className="@[540px]/card:hidden">Requests/s and failures</span>
         </CardDescription>
         <CardAction>
           <ToggleGroup
@@ -162,8 +175,12 @@ export function ChartAreaInteractive() {
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
-                width={40}
-                allowDecimals={false}
+                width={44}
+                // A rate is often below one on a quiet host, where whole
+                // numbers would collapse the whole axis onto zero.
+                tickFormatter={(v: number) =>
+                  v >= 10 || v === 0 ? String(Math.round(v)) : v.toFixed(1)
+                }
               />
               <ChartTooltip
                 cursor={false}
@@ -198,7 +215,8 @@ export function ChartAreaInteractive() {
 }
 
 /** toRows turns the server's samples into one row per bucket across the whole
- *  window, including the buckets with no traffic.
+ *  window, including the buckets with no traffic. Values are rates, so the
+ *  still-filling last bucket is comparable with the finished ones.
  *
  *  The server only stores a sample for an interval that actually saw requests,
  *  which keeps a month of history small. Plotted directly that leaves gaps,
@@ -221,15 +239,32 @@ function toRows(
   // Buckets are aligned to absolute time on the server, so the same rounding
   // has to be applied here or every sample would land between two slots.
   const served = new Map<number, { served: number; failed: number }>()
+  // The newest bucket is still filling, and how much traffic it already holds
+  // depends on where the sample flush happened to land inside it. There is no
+  // figure to plot there that is not partly guesswork, so it is left out and
+  // the chart ends at the last bucket that is actually complete. The live
+  // figure above the chart is what answers "right now".
+  let newest = -Infinity
   for (const p of points) {
+    if (p.partial) continue
     const bucket = Math.floor(new Date(p.timestamp).getTime() / step) * step
     const failed = p.status5xx + p.statusError
-    served.set(bucket, { served: Math.max(p.requests - failed, 0), failed })
+    // The failure share is applied to the rate so the two areas stack to the
+    // total rather than to the raw counts.
+    const share = p.requests > 0 ? failed / p.requests : 0
+    served.set(bucket, {
+      served: p.requestsPerSec * (1 - share),
+      failed: p.requestsPerSec * share,
+    })
+    if (bucket > newest) newest = bucket
   }
 
   const rows: Row[] = []
   const start = Math.floor(from.getTime() / step) * step
-  const end = Math.floor(to.getTime() / step) * step
+  // Stop one bucket short of now, so the gap-filling below does not put a
+  // zero where the excluded partial bucket was — which would draw the very
+  // cliff this avoids.
+  const end = Math.floor(to.getTime() / step) * step - step
   for (let t = start; t <= end; t += step) {
     const found = served.get(t)
     rows.push({
