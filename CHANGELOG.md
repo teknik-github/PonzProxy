@@ -13,6 +13,27 @@ Every released version has a matching container image and a git tag, so
 
 ### Added
 
+- **Response compression** — gzip on the way out, per host. Most backends do
+  not compress: a Go or Node service handing back JSON sends it whole and
+  leaves the question to whatever sits in front, and until now nothing here
+  answered it. Measured through the proxy on a 12.7 kB HTML page: 12675 bytes
+  becomes 189, and decompresses back to exactly 12675.
+
+  It respects `Accept-Encoding` including `gzip;q=0`, never compresses what a
+  backend already encoded, leaves formats that are already compressed alone,
+  drops `Content-Length` and weakens a strong `ETag` because both describe a
+  representation that has changed, and adds `Vary: Accept-Encoding` so no cache
+  in between serves a gzip body to a client that cannot read one. Below the
+  size threshold nothing happens, because a 24 byte reply gzips to 44.
+- **Custom headers** — per host and per location, in both directions. Add an
+  internal auth header for a backend, add `X-Frame-Options` for a browser,
+  remove the `Server` header a backend volunteers. A rule replaces rather than
+  appends, since two values leave nothing downstream able to predict which one
+  is read. A location's rules run after the host's, so a location can override
+  one for its own path. Headers that describe the connection or the framing —
+  `Content-Length`, `Connection`, `Host` — are refused: setting one does not
+  change what the proxy does, only what it claims. A value containing CRLF is
+  refused too, because that is header injection.
 - **Locations** — a host can now send a path prefix to its own backends, so
   one domain serves a frontend at `/` and an API at `/api`. Until now routing
   read the Host header alone, which meant two subdomains, two certificates or
@@ -137,6 +158,9 @@ this project's own demo the archive is 6.5 MB from a 43 MB database.
 
 ### Fixed
 
+- The request-path diagram now says which path each backend serves. A host can
+  have several pools since locations arrived, and the diagram listed all their
+  backends together with no way to tell which one answered what.
 - **"Requests over time" ended in a cliff.** The newest bucket is always still
   filling — ten seconds into a minute it holds a sixth of a minute's requests —
   so a chart of raw counts showed traffic falling off a wall at the right-hand

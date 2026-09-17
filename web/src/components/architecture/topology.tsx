@@ -539,6 +539,11 @@ function UpstreamBox({
       ? "—"
       : `${Math.round(view.share * 100)}%`
 
+  // The path a backend answers is the first thing worth knowing about it once
+  // a host has more than one pool, so it leads the row rather than hiding in
+  // the detail line.
+  const served = view.location
+
   const detail = bad
     ? (view.problem ?? "Not serving")
     : `${STATE_LABEL[view.state]} · ${count(view.activeConns)} open · ${millis(
@@ -553,7 +558,14 @@ function UpstreamBox({
     ? view.address.slice("http://".length)
     : view.address
 
-  const label = `${view.address}, ${STATE_LABEL[view.state]}, ${share} of this host's traffic`
+  // The room the path tag takes, and the room the address therefore loses. A
+  // long prefix is capped so it can never squeeze the address off the row.
+  const servedWidth =
+    served === "" ? 0 : Math.min(textWidth(served, 11, true) + 6, box.w * 0.4)
+
+  const label = `${view.address}, ${
+    served === "" ? "the host's own upstreams" : "serving " + served
+  }, ${STATE_LABEL[view.state]}, ${share} of this host's traffic`
 
   return (
     <g
@@ -571,7 +583,9 @@ function UpstreamBox({
         }
       }}
     >
-      <title>{`${view.address}\n${STATE_LABEL[view.state]} · ${share} of this host's traffic${
+      <title>{`${view.address}\n${
+        served === "" ? "the host's own upstreams" : "serving " + served
+      }\n${STATE_LABEL[view.state]} · ${share} of this host's traffic${
         view.problem ? `\n${view.problem}` : ""
       }`}</title>
       <Frame box={box} selected={selected} bad={bad} dimmed={dim} />
@@ -584,15 +598,24 @@ function UpstreamBox({
           bad ? "fill-destructive" : dim ? "fill-muted-foreground" : "fill-emerald-500",
         )}
       />
+      {served !== "" && (
+        <text
+          x={box.x + inset + 15}
+          y={box.y + 20}
+          className="fill-muted-foreground font-mono text-[11px]"
+        >
+          {fit(served, servedWidth, 11, true)}
+        </text>
+      )}
       <text
-        x={box.x + inset + 15}
+        x={box.x + inset + 15 + servedWidth}
         y={box.y + 20}
         className={cn(
           "font-mono text-[11px]",
           bad ? "fill-destructive line-through" : dim ? "fill-muted-foreground" : "fill-foreground",
         )}
       >
-        {fit(shown, box.w - inset * 2 - 15 - 36, 11, true)}
+        {fit(shown, box.w - inset * 2 - 15 - 36 - servedWidth, 11, true)}
       </text>
       <text
         x={box.x + box.w - inset}

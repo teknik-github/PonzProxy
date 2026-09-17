@@ -104,6 +104,15 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Inside the cache on purpose: what is stored is then already
+	// compressed, so a hit is served without compressing it again. The
+	// cache keys on Accept-Encoding, so a client that cannot take gzip gets
+	// its own entry rather than a body it cannot read.
+	if cw, ok := newCompressWriter(w, r, &rt.host.Compression).(*compressWriter); ok {
+		defer cw.Close()
+		w = cw
+	}
+
 	e.forward(w, r, rt, start)
 }
 
@@ -206,11 +215,31 @@ func (e *Engine) forward(w http.ResponseWriter, r *http.Request, rt *route, star
 // route; the per-request decisions travel through the context.
 func (e *Engine) buildReverseProxy() *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
-		Rewrite:      e.rewrite,
-		Transport:    roundTripperFunc(e.roundTrip),
-		ErrorHandler: e.handleUpstreamError,
-		ErrorLog:     slogErrorLog(e.logger),
+		Rewrite:        e.rewrite,
+		ModifyResponse: e.modifyResponse,
+		Transport:      roundTripperFunc(e.roundTrip),
+		ErrorHandler:   e.handleUpstreamError,
+		ErrorLog:       slogErrorLog(e.logger),
 	}
+}
+
+// modifyResponse edits what the backend sent before it reaches the visitor.
+//
+// It runs here rather than by wrapping the ResponseWriter because this is the
+// last point at which the headers are still a map: once they are written they
+// are on the wire, and a rule that removes a header would arrive too late.
+func (e *Engine) modifyResponse(resp *http.Response) error {
+	state := stateFrom(resp.Request.Context())
+	if state == nil {
+		return nil
+	}
+	if !state.route.host.Headers.Empty() {
+		state.route.host.Headers.ApplyResponse(resp.Header)
+	}
+	if state.location != nil && !state.location.config.Headers.Empty() {
+		state.location.config.Headers.ApplyResponse(resp.Header)
+	}
+	return nil
 }
 
 // rewrite turns the inbound request into the one sent upstream.
@@ -238,6 +267,15 @@ func (e *Engine) rewrite(pr *httputil.ProxyRequest) {
 	// and Host, replacing any values the client supplied so they cannot be
 	// spoofed.
 	pr.SetXForwarded()
+
+	// The host's rules first, then the location's, so a location can add to
+	// them or override one of them for its own path.
+	if !state.route.host.Headers.Empty() {
+		state.route.host.Headers.ApplyRequest(pr.Out.Header)
+	}
+	if state.location != nil && !state.location.config.Headers.Empty() {
+		state.location.config.Headers.ApplyRequest(pr.Out.Header)
+	}
 
 	if state.route.host.PreserveHost {
 		pr.Out.Host = pr.In.Host

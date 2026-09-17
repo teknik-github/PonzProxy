@@ -97,6 +97,7 @@ export interface Location {
    *  sit behind /api/v1/users without knowing it. */
   stripPrefix: boolean
   upstreams: Upstream[] | null
+  headers: Headers
   position: number
 }
 
@@ -107,6 +108,33 @@ export interface UsageAlert {
   bytes: number
   /** Rolling, not calendar: ponzproxy does not know your billing day. */
   periodDays: number
+}
+
+/** HeaderRule sets or removes one header. Remove is a flag rather than an
+ *  empty value because an empty value is legal and occasionally meaningful. */
+export interface HeaderRule {
+  name: string
+  value: string
+  remove: boolean
+}
+
+/** Request rules change what the backend receives; response rules what the
+ *  visitor receives. Separate lists because they are different jobs that
+ *  happen to share a mechanism. */
+export interface Headers {
+  request: HeaderRule[] | null
+  response: HeaderRule[] | null
+}
+
+/** Compression compresses responses on the way out. Most backends do not, so
+ *  without it the bytes go out whole — this project's own console bundle is
+ *  1019 kB uncompressed against 291 kB gzipped. */
+export interface Compression {
+  enabled: boolean
+  /** Below this the gzip header and trailer cost more than they save. */
+  minBytes: number
+  types: string[] | null
+  level: number
 }
 
 export interface Host {
@@ -132,6 +160,8 @@ export interface Host {
   errorPages: ErrorPages
   usageAlert: UsageAlert
   locations: Location[] | null
+  headers: Headers
+  compression: Compression
   createdAt: string
   updatedAt: string
 }
@@ -375,7 +405,10 @@ export interface HostInput {
     path: string
     stripPrefix: boolean
     upstreams: UpstreamInput[]
+    headers: Headers
   }[]
+  headers: Headers
+  compression: Compression
 }
 
 export interface CertificateInput {

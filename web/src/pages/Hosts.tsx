@@ -8,6 +8,7 @@ import type {
   GuardianMode,
   Mode,
   GuardianRuleOption,
+  HeaderRule,
   Certificate,
   Host,
   HostInput,
@@ -314,6 +315,20 @@ function toInput(host: Host | null): HostInput {
       },
       usageAlert: { enabled: false, bytes: 107374182400, periodDays: 30 },
       locations: [],
+      headers: { request: [], response: [] },
+      // Off, like everything else that changes what a visitor receives. The
+      // list is what a host gets the moment it is switched on.
+      compression: {
+        enabled: false,
+        minBytes: 1024,
+        level: 5,
+        types: [
+          "text/html", "text/css", "text/plain", "text/xml",
+          "text/javascript", "application/javascript", "application/x-javascript",
+          "application/json", "application/xml", "application/rss+xml",
+          "image/svg+xml", "application/wasm",
+        ],
+      },
     }
   }
   return {
@@ -391,7 +406,16 @@ function toInput(host: Host | null): HostInput {
         enabled: u.enabled,
         skipTlsVerify: u.skipTlsVerify,
       })),
+      headers: {
+        request: l.headers?.request ?? [],
+        response: l.headers?.response ?? [],
+      },
     })),
+    headers: {
+      request: host.headers?.request ?? [],
+      response: host.headers?.response ?? [],
+    },
+    compression: { ...host.compression, types: host.compression?.types ?? [] },
   }
 }
 
@@ -645,7 +669,12 @@ function HostSheet({
                   patch({
                     locations: [
                       ...input.locations,
-                      { path: "/api", stripPrefix: false, upstreams: [blankUpstream()] },
+                      {
+                        path: "/api",
+                        stripPrefix: false,
+                        upstreams: [blankUpstream()],
+                        headers: { request: [], response: [] },
+                      },
                     ],
                   })
                 }
@@ -1425,6 +1454,128 @@ function HostSheet({
 
           <div className="flex flex-col gap-3">
             <div>
+              <h3 className="text-sm font-medium">Compression</h3>
+              <p className="text-muted-foreground text-xs">
+                Compresses text responses on the way out. Most backends do not
+                do this themselves, so without it the bytes go out whole —
+                this console's own bundle is 1019 kB uncompressed against 291
+                kB gzipped, and the difference is transfer you are billed for.
+              </p>
+            </div>
+
+            <CheckField
+              label="Compress responses the client can accept"
+              checked={input.compression.enabled}
+              onChange={(v) =>
+                patch({ compression: { ...input.compression, enabled: v } })
+              }
+            />
+
+            {input.compression.enabled && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    label="Smallest response (bytes)"
+                    hint="Below this the gzip header and trailer cost more than they save: a 24 byte reply comes back at 44."
+                    error={fieldError("compression.minBytes")}
+                  >
+                    <Input
+                      type="number"
+                      min={64}
+                      value={input.compression.minBytes}
+                      onChange={(e) =>
+                        patch({
+                          compression: {
+                            ...input.compression,
+                            minBytes: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Effort (1–9)"
+                    hint="Past about 6 the extra CPU buys single-digit percentages."
+                    error={fieldError("compression.level")}
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      max={9}
+                      value={input.compression.level}
+                      onChange={(e) =>
+                        patch({
+                          compression: { ...input.compression, level: Number(e.target.value) },
+                        })
+                      }
+                    />
+                  </FormField>
+                </div>
+                <FormField
+                  label="Content types"
+                  hint="Only text is worth compressing. Images, video and archives are already compressed, so re-compressing them spends CPU to make them slightly larger. Comma separated."
+                  error={fieldError("compression.types")}
+                >
+                  <Input
+                    className="font-mono"
+                    value={(input.compression.types ?? []).join(", ")}
+                    onChange={(e) =>
+                      patch({
+                        compression: {
+                          ...input.compression,
+                          types: e.target.value
+                            .split(",")
+                            .map((t) => t.trim())
+                            .filter(Boolean),
+                        },
+                      })
+                    }
+                  />
+                </FormField>
+              </>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-sm font-medium">Headers</h3>
+              <p className="text-muted-foreground text-xs">
+                Rewrites what this host sends to its backends and what it
+                returns to visitors. A rule replaces whatever was there rather
+                than adding a second value. Headers that describe the
+                connection — <code>Content-Length</code>,{" "}
+                <code>Connection</code>, <code>Host</code> — are refused,
+                because setting one does not change what the proxy does, only
+                what it claims.
+              </p>
+            </div>
+
+            <HeaderRules
+              label="To the backend"
+              rules={input.headers.request ?? []}
+              error={fieldError}
+              field="headers.request"
+              onChange={(rules) =>
+                patch({ headers: { ...input.headers, request: rules } })
+              }
+            />
+            <HeaderRules
+              label="To the visitor"
+              rules={input.headers.response ?? []}
+              error={fieldError}
+              field="headers.response"
+              onChange={(rules) =>
+                patch({ headers: { ...input.headers, response: rules } })
+              }
+            />
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            <div>
               <h3 className="text-sm font-medium">Traffic budget</h3>
               <p className="text-muted-foreground text-xs">
                 Sends an alert when this host passes a transfer budget. About
@@ -1696,6 +1847,84 @@ function HostSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** HeaderRules edits one direction's list. Both directions use it, because a
+ *  rule is a rule; only where it is applied differs. */
+function HeaderRules({
+  label,
+  rules,
+  field,
+  error,
+  onChange,
+}: {
+  label: string
+  rules: HeaderRule[]
+  field: string
+  error: (name: string) => string | undefined
+  onChange: (rules: HeaderRule[]) => void
+}) {
+  const patchRule = (index: number, fields: Partial<HeaderRule>) =>
+    onChange(rules.map((r, i) => (i === index ? { ...r, ...fields } : r)))
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center">
+        <span className="text-muted-foreground text-xs font-medium">{label}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          onClick={() => onChange([...rules, { name: "", value: "", remove: false }])}
+        >
+          <IconPlus />
+          Add rule
+        </Button>
+      </div>
+
+      {rules.map((rule, i) => (
+        <div
+          key={i}
+          className="bg-muted/40 grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_1fr_auto_auto]"
+        >
+          <FormField label="Name" error={error(`${field}[${i}].name`)}>
+            <Input
+              className="font-mono"
+              placeholder="X-Tenant-Id"
+              value={rule.name}
+              onChange={(e) => patchRule(i, { name: e.target.value })}
+            />
+          </FormField>
+          <FormField label="Value" error={error(`${field}[${i}].value`)}>
+            <Input
+              className="font-mono"
+              placeholder={rule.remove ? "—" : "acme"}
+              value={rule.value}
+              disabled={rule.remove}
+              onChange={(e) => patchRule(i, { value: e.target.value })}
+            />
+          </FormField>
+          <div className="flex items-end pb-2">
+            <CheckField
+              label="Remove"
+              checked={rule.remove}
+              onChange={(v) => patchRule(i, { remove: v, value: v ? "" : rule.value })}
+            />
+          </div>
+          <div className="flex items-end pb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => onChange(rules.filter((_, j) => j !== i))}
+            >
+              <IconTrash />
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

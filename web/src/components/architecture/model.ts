@@ -41,6 +41,11 @@ export const STATE_LABEL: Record<UpstreamState, string> = {
 export interface UpstreamView {
   key: string
   address: string
+  /** The path prefix this backend serves, or empty for the host's own
+   *  upstreams. A host can have several pools now, and without this the
+   *  diagram shows all their backends in one list with no way to tell which
+   *  path any of them answers. */
+  location: string
   state: UpstreamState
   /** Fraction of this host's traffic, 0..1. */
   share: number
@@ -205,6 +210,7 @@ function hostView(
         state: (u.enabled ? "unknown" : "paused") as UpstreamState,
         share: 0,
         weight: u.weight,
+        location: "",
         activeConns: 0,
         meanLatencyMs: 0,
         totalRequests: 0,
@@ -255,8 +261,11 @@ function orphanView(snap: HostSnapshot): HostView {
 
 function liveUpstream(u: UpstreamSnapshot): UpstreamView {
   return {
-    key: u.address,
+    // The same address can serve two different paths, so the path is part of
+    // what identifies a backend on this screen.
+    key: (u.location ?? "") + " " + u.address,
     address: u.address,
+    location: u.location ?? "",
     state: stateOf(u),
     share: 0,
     weight: u.weight,

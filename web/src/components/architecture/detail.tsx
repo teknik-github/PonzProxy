@@ -62,6 +62,10 @@ export function Detail({ model, selection, onClear }: Props) {
               value: `${millis(upstream.meanLatencyMs)} ms`,
             },
             { label: "configured weight", value: String(upstream.weight) },
+            {
+              label: "serves",
+              value: upstream.location === "" ? "everything else" : upstream.location,
+            },
             { label: "host", value: host.name },
           ]}
         />

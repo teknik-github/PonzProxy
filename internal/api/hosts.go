@@ -34,6 +34,8 @@ type hostPayload struct {
 	ErrorPages       domain.ErrorPages    `json:"errorPages"`
 	UsageAlert       domain.UsageAlert    `json:"usageAlert"`
 	Locations        []locationPayload    `json:"locations"`
+	Headers          domain.Headers       `json:"headers"`
+	Compression      domain.Compression   `json:"compression"`
 }
 
 // locationPayload is one path prefix and the backends behind it. Upstreams
@@ -43,6 +45,7 @@ type locationPayload struct {
 	Path        string            `json:"path"`
 	StripPrefix bool              `json:"stripPrefix"`
 	Upstreams   []upstreamPayload `json:"upstreams"`
+	Headers     domain.Headers    `json:"headers"`
 }
 
 // limitsPayload is the per-host traffic limit. It mirrors domain.TrafficLimits
@@ -168,9 +171,11 @@ func (p hostPayload) toDomain() domain.Host {
 		Maintenance: p.Maintenance,
 		ErrorPages:  p.ErrorPages,
 		UsageAlert:  p.UsageAlert,
+		Headers:     p.Headers,
+		Compression: p.Compression,
 	}
 	for _, l := range p.Locations {
-		loc := domain.Location{Path: l.Path, StripPrefix: l.StripPrefix}
+		loc := domain.Location{Path: l.Path, StripPrefix: l.StripPrefix, Headers: l.Headers}
 		for _, u := range l.Upstreams {
 			loc.Upstreams = append(loc.Upstreams, domain.Upstream{
 				Scheme:        u.Scheme,

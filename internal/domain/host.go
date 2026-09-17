@@ -98,6 +98,12 @@ type Host struct {
 	// Locations route path prefixes of this host to their own backends.
 	// Anything that matches none of them is served by Upstreams above.
 	Locations []Location `json:"locations"`
+	// Headers rewrites what this host sends upstream and what it returns.
+	// A location's own rules are applied after these.
+	Headers Headers `json:"headers"`
+	// Compression compresses responses on the way to the visitor. Off by
+	// default; see Compression.
+	Compression Compression `json:"compression"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -283,6 +289,8 @@ func (h *Host) Normalize() {
 	h.Maintenance.Normalize()
 	h.ErrorPages.Normalize()
 	h.UsageAlert.Normalize()
+	h.Headers.Normalize()
+	h.Compression.Normalize()
 
 	for i := range h.Locations {
 		h.Locations[i].Normalize()
@@ -385,6 +393,15 @@ func (h *Host) Validate() error {
 		var usageErr *ValidationError
 		if errors.As(err, &usageErr) {
 			v.Fields = append(v.Fields, usageErr.Fields...)
+		}
+	}
+
+	h.Headers.Validate(v, "headers")
+
+	if err := h.Compression.Validate(); err != nil {
+		var compErr *ValidationError
+		if errors.As(err, &compErr) {
+			v.Fields = append(v.Fields, compErr.Fields...)
 		}
 	}
 

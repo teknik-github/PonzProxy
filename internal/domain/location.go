@@ -29,6 +29,9 @@ type Location struct {
 	// without knowing it.
 	StripPrefix bool       `json:"stripPrefix"`
 	Upstreams   []Upstream `json:"upstreams"`
+	// Headers are applied after the host's own, so a location can add to
+	// them or override one of them for its own path.
+	Headers Headers `json:"headers"`
 	// Position keeps the operator's ordering for display. Matching does
 	// not depend on it: the longest path wins, whatever the order.
 	Position int `json:"position"`
@@ -85,6 +88,7 @@ func (l *Location) Normalize() {
 	}
 
 	NormalizeUpstreams(l.Upstreams)
+	l.Headers.Normalize()
 }
 
 // Validate reports every problem at once.
@@ -115,5 +119,6 @@ func (l *Location) Validate(index int) error {
 	// The same rules as a host's own upstreams, reported under this
 	// location's prefix so the form can mark the right row.
 	ValidateUpstreams(v, "locations["+strconv.Itoa(index)+"].upstreams", l.Upstreams)
+	l.Headers.Validate(v, "locations["+strconv.Itoa(index)+"].headers")
 	return v.Err()
 }
