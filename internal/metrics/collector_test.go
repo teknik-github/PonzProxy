@@ -304,6 +304,16 @@ func TestConcurrentRecordIsSafe(t *testing.T) {
 	}()
 	wg.Wait()
 
+	// Snapshot reports the active count as of the last sample, not as of
+	// now — that is the whole reason Snapshot is a pure read. So the count
+	// has to be sampled once more after the workers have stopped, exactly
+	// as the collector's own ticker would.
+	//
+	// Without this the assertion depended on the sampling goroutine above
+	// happening to outlive the workers, which it usually did on an idle
+	// machine and did not on a loaded CI runner.
+	c.sampleRates()
+
 	snap := c.Snapshot()
 	for _, h := range snap.Hosts {
 		if h.Traffic.ActiveConns != 0 {
