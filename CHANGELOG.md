@@ -7,9 +7,24 @@ an upgrade needs action from you, the **minor** number when something is added,
 and the **patch** number when something is only fixed.
 
 Every released version has a matching container image and a git tag, so
-`ghcr.io/teknik-github/ponzproxy:0.3.0` is exactly the code at `v0.3.0`.
+`ghcr.io/teknik-github/ponzproxy:0.4.0` is exactly the code at `v0.4.0`.
 
 ## [Unreleased]
+
+## [0.4.0] - 2026-09-17
+
+### Upgrading
+
+Nothing needs action. The database migrates itself, and everything added here
+is off on existing hosts: compression, header rules, locations and traffic
+budgets all start switched off and change nothing until you turn them on.
+
+Two things worth knowing once you do switch compression on. It removes
+`Content-Length` and weakens a strong `ETag` on any response it compresses,
+because both describe a representation that has changed — that is correct and
+expected, not a fault. And a host sitting behind another cache wants
+`Vary: Accept-Encoding` to survive that cache; ponzproxy sets it, but a cache
+configured to strip `Vary` will serve gzip to clients that cannot read it.
 
 ### Added
 
@@ -315,7 +330,8 @@ First public release.
   per-upstream share of traffic, and historical charts.
 - **Login rate limiting** — five failures from an address, then a pause.
 
-[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/teknik-github/PonzProxy/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/teknik-github/PonzProxy/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/teknik-github/PonzProxy/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/teknik-github/PonzProxy/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/teknik-github/PonzProxy/compare/v0.1.0...v0.2.0
